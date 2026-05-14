@@ -4,12 +4,14 @@ Client-only NeoForge mod for Minecraft 1.21.1 that renders an FBX model with an 
 
 ## Usage
 
-1. Export an ASCII FBX from Blender. Include the mesh, armature, skin weights, UVs, and a material that uses a Minecraft-compatible skin texture layout.
+1. Export an FBX from Blender. ASCII and binary FBX are supported. Include the mesh, armature, skin weights, UVs, and UVs for your texture image.
 2. Build the mod with Java 21 and put the generated jar into a NeoForge 1.21.1 client's `mods` folder.
 3. Start Minecraft once so the config file is created at `config/armature-fbx-skin.json`.
-4. Put ASCII `.fbx` skins in the `.minecraft/fbx` folder. Subfolders are supported.
-5. Set `selectedSkinId` to the discovered skin id, or set `selectedSkinPath` to an absolute path or a path relative to the `.minecraft` game directory.
-6. Press `R` in game to reload the model.
+4. Put `.fbx` skins in the `.minecraft/fbx` folder. Subfolders are supported.
+5. Put optional `.png`, `.jpg`, or `.jpeg` UV textures in the same `.minecraft/fbx` folder tree. A texture next to an FBX with the same basename is preferred automatically, such as `alex.fbx` and `alex.png`. Multiple textures are supported as selectable candidates.
+6. Set `selectedSkinId` to the discovered skin id, or set `selectedSkinPath` to an absolute path or a path relative to the `.minecraft` game directory. Set `selectedTextureId` or `selectedTexturePath` to override the automatically preferred texture.
+7. Press `K` in game to open the FBX/Texture selector. Use it to choose the FBX model and UV texture; chat prompts also point back to `K` when no model is loaded.
+8. Press `R` in game to reload the model.
 
 ```json
 {
@@ -17,6 +19,8 @@ Client-only NeoForge mod for Minecraft 1.21.1 that renders an FBX model with an 
   "localPlayerOnly": true,
   "selectedSkinId": "",
   "selectedSkinPath": "",
+  "selectedTextureId": "",
+  "selectedTexturePath": "",
   "fbxPath": "",
   "scale": 0.01,
   "yOffset": 0.0,
@@ -25,11 +29,11 @@ Client-only NeoForge mod for Minecraft 1.21.1 that renders an FBX model with an 
 }
 ```
 
-Skin ids are based on the path under `.minecraft/fbx` without the `.fbx` extension. For example, `.minecraft/fbx/player_ascii.fbx` has id `player_ascii`, and `.minecraft/fbx/custom/alex.fbx` has id `custom/alex`. If no configured selection resolves, the first discovered ASCII FBX skin is used. `fbxPath` is kept as a legacy fallback for older configs. `forceOpaqueSkin` is enabled by default so transparent pixels in the Minecraft skin overlay do not make FBX surfaces disappear.
+Skin ids are based on the path under `.minecraft/fbx` without the `.fbx` extension. For example, `.minecraft/fbx/player_binary.fbx` has id `player_binary`, and `.minecraft/fbx/custom/alex.fbx` has id `custom/alex`. Texture ids use the same rule with `.png`, `.jpg`, or `.jpeg` removed. If no configured skin selection resolves, the first discovered FBX skin is used. If no configured texture selection resolves, the selected skin prefers a sibling texture with the same basename, then the first sibling texture. `fbxPath` is kept as a legacy fallback for older configs. `forceOpaqueSkin` is enabled by default so transparent pixels in the Minecraft skin overlay do not make FBX surfaces disappear.
 
 ## Notes
 
-- This first implementation targets ASCII FBX files, which Blender can export.
+- Binary FBX support covers the mesh, armature, UV, skin cluster, and object connection data used by Blender-style character exports.
 - Minecraft 1.21.1/NeoForge targets Java 21.
 - Bone animation is generated procedurally from the player's walking state. Bone names containing common words such as `arm`, `forearm`, `thigh`, `leg`, `shin`, `foot`, `head`, `neck`, `spine`, or `chest` receive sensible Minecraft-style motion.
-- The renderer uses the player's current skin texture and the FBX UVs.
+- The renderer uses the selected UV texture when one is available, and falls back to the player's current skin texture.

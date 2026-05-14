@@ -20,6 +20,27 @@ public interface ArmatureSkinSelectionApi {
 
     void openSkinsFolder();
 
+    default List<TextureEntry> listTextures(SkinEntry skin) {
+        return List.of();
+    }
+
+    default Optional<TextureEntry> selectedTexture(SkinEntry skin) {
+        return Optional.empty();
+    }
+
+    default void selectTexture(SkinEntry skin, TextureEntry texture) {
+    }
+
+    default void reloadTextures(SkinEntry skin) {
+    }
+
+    default void openTexturesFolder(SkinEntry skin) {
+        openSkinsFolder();
+    }
+
     record SkinEntry(String id, Component displayName, Path path) {
+    }
+
+    record TextureEntry(String id, Component displayName, Path path) {
     }
 }

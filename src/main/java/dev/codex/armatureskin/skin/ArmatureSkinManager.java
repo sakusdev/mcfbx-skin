@@ -21,22 +21,29 @@ public final class ArmatureSkinManager {
     private final Path gameDir;
     private final ArmatureSkinConfig config;
     private final List<ArmatureSkin> availableSkins;
+    private final List<ArmatureSkinTexture> availableTextures;
 
-    private ArmatureSkinManager(Path gameDir, ArmatureSkinConfig config, List<ArmatureSkin> availableSkins) {
+    private ArmatureSkinManager(Path gameDir, ArmatureSkinConfig config, List<ArmatureSkin> availableSkins, List<ArmatureSkinTexture> availableTextures) {
         this.gameDir = gameDir;
         this.config = config;
         this.availableSkins = List.copyOf(availableSkins);
+        this.availableTextures = List.copyOf(availableTextures);
     }
 
     public static ArmatureSkinManager discover(Path gameDir, ArmatureSkinConfig config) {
         Path normalizedGameDir = gameDir.toAbsolutePath().normalize();
         Path skinDir = normalizedGameDir.resolve(SKIN_DIRECTORY);
-        List<ArmatureSkin> skins = discoverSkins(skinDir);
-        return new ArmatureSkinManager(normalizedGameDir, config, skins);
+        List<ArmatureSkinTexture> textures = discoverTextures(skinDir);
+        List<ArmatureSkin> skins = discoverSkins(skinDir, textures);
+        return new ArmatureSkinManager(normalizedGameDir, config, skins, textures);
     }
 
     public List<ArmatureSkin> availableSkins() {
         return availableSkins;
+    }
+
+    public List<ArmatureSkinTexture> availableTextures() {
+        return availableTextures;
     }
 
     public Optional<ArmatureSkin> resolveSelectedSkin() {
@@ -62,6 +69,28 @@ public final class ArmatureSkinManager {
         return resolveSelectedSkin().map(ArmatureSkin::path);
     }
 
+    public Optional<ArmatureSkinTexture> resolveSelectedTexture() {
+        return resolveSelectedSkin().flatMap(this::resolveSelectedTexture);
+    }
+
+    public Optional<ArmatureSkinTexture> resolveSelectedTexture(ArmatureSkin skin) {
+        Optional<ArmatureSkinTexture> byId = findTextureById(config.selectedTextureId());
+        if (byId.isPresent()) {
+            return byId;
+        }
+
+        Optional<ArmatureSkinTexture> bySelectedPath = resolveConfiguredTexturePath(config.selectedTexturePath(), "selected-texture-path");
+        if (bySelectedPath.isPresent()) {
+            return bySelectedPath;
+        }
+
+        return skin.preferredTexture();
+    }
+
+    public Optional<Path> resolveSelectedTexturePath() {
+        return resolveSelectedTexture().map(ArmatureSkinTexture::path);
+    }
+
     public Optional<ArmatureSkin> findById(String skinId) {
         if (skinId == null || skinId.isBlank()) {
             return Optional.empty();
@@ -71,15 +100,23 @@ public final class ArmatureSkinManager {
                 .findFirst();
     }
 
-    private static List<ArmatureSkin> discoverSkins(Path skinDir) {
+    public Optional<ArmatureSkinTexture> findTextureById(String textureId) {
+        if (textureId == null || textureId.isBlank()) {
+            return Optional.empty();
+        }
+        return availableTextures.stream()
+                .filter(texture -> texture.id().equalsIgnoreCase(textureId))
+                .findFirst();
+    }
+
+    private static List<ArmatureSkin> discoverSkins(Path skinDir, List<ArmatureSkinTexture> textures) {
         try {
             Files.createDirectories(skinDir);
             try (Stream<Path> walk = Files.walk(skinDir)) {
                 return walk
                         .filter(Files::isRegularFile)
                         .filter(ArmatureSkinManager::hasFbxExtension)
-                        .filter(ArmatureSkinManager::isAsciiFbx)
-                        .map(path -> discoveredSkin(skinDir, path))
+                        .map(path -> discoveredSkin(skinDir, path, textures))
                         .sorted(Comparator.comparing(ArmatureSkin::id, String.CASE_INSENSITIVE_ORDER))
                         .toList();
             }
@@ -88,16 +125,51 @@ public final class ArmatureSkinManager {
         }
     }
 
-    private static ArmatureSkin discoveredSkin(Path skinDir, Path path) {
+    private static List<ArmatureSkinTexture> discoverTextures(Path skinDir) {
+        try {
+            Files.createDirectories(skinDir);
+            try (Stream<Path> walk = Files.walk(skinDir)) {
+                return walk
+                        .filter(Files::isRegularFile)
+                        .filter(ArmatureSkinManager::hasTextureExtension)
+                        .map(path -> discoveredTexture(skinDir, path))
+                        .sorted(Comparator.comparing(ArmatureSkinTexture::id, String.CASE_INSENSITIVE_ORDER))
+                        .toList();
+            }
+        } catch (IOException ex) {
+            return List.of();
+        }
+    }
+
+    private static ArmatureSkin discoveredSkin(Path skinDir, Path path, List<ArmatureSkinTexture> textures) {
         Path normalizedPath = path.toAbsolutePath().normalize();
         String relative = skinDir.relativize(normalizedPath).toString().replace('\\', '/');
         String id = stripFbxExtension(relative);
-        return new ArmatureSkin(id, displayName(normalizedPath), normalizedPath);
+        return new ArmatureSkin(id, displayName(normalizedPath), normalizedPath, isAsciiFbx(normalizedPath), siblingTextures(normalizedPath, textures));
+    }
+
+    private static ArmatureSkinTexture discoveredTexture(Path skinDir, Path path) {
+        Path normalizedPath = path.toAbsolutePath().normalize();
+        String relative = skinDir.relativize(normalizedPath).toString().replace('\\', '/');
+        String id = stripExtension(relative);
+        return new ArmatureSkinTexture(id, stripExtension(normalizedPath.getFileName().toString()), normalizedPath);
+    }
+
+    private static List<ArmatureSkinTexture> siblingTextures(Path skinPath, List<ArmatureSkinTexture> textures) {
+        Path skinParent = skinPath.getParent();
+        String skinBaseName = stripExtension(skinPath.getFileName().toString());
+        Comparator<ArmatureSkinTexture> byPreference = Comparator
+                .comparing((ArmatureSkinTexture texture) -> !stripExtension(texture.path().getFileName().toString()).equalsIgnoreCase(skinBaseName))
+                .thenComparing(ArmatureSkinTexture::id, String.CASE_INSENSITIVE_ORDER);
+        return textures.stream()
+                .filter(texture -> texture.path().getParent() != null && texture.path().getParent().equals(skinParent))
+                .sorted(byPreference)
+                .toList();
     }
 
     private Optional<ArmatureSkin> resolveConfiguredPath(String configuredPath, String idPrefix) {
         Path path = config.resolveConfiguredPath(gameDir, configuredPath);
-        if (path == null || !Files.isRegularFile(path) || !hasFbxExtension(path) || !isAsciiFbx(path)) {
+        if (path == null || !Files.isRegularFile(path) || !hasFbxExtension(path)) {
             return Optional.empty();
         }
 
@@ -105,12 +177,30 @@ public final class ArmatureSkinManager {
         return availableSkins.stream()
                 .filter(skin -> skin.path().toAbsolutePath().normalize().equals(normalizedPath))
                 .findFirst()
-                .or(() -> Optional.of(new ArmatureSkin(idPrefix + ":" + stripFbxExtension(normalizedPath.getFileName().toString()), displayName(normalizedPath), normalizedPath)));
+                .or(() -> Optional.of(new ArmatureSkin(idPrefix + ":" + stripFbxExtension(normalizedPath.getFileName().toString()), displayName(normalizedPath), normalizedPath, isAsciiFbx(normalizedPath), siblingTextures(normalizedPath, availableTextures))));
+    }
+
+    private Optional<ArmatureSkinTexture> resolveConfiguredTexturePath(String configuredPath, String idPrefix) {
+        Path path = config.resolveConfiguredPath(gameDir, configuredPath);
+        if (path == null || !Files.isRegularFile(path) || !hasTextureExtension(path)) {
+            return Optional.empty();
+        }
+
+        Path normalizedPath = path.toAbsolutePath().normalize();
+        return availableTextures.stream()
+                .filter(texture -> texture.path().toAbsolutePath().normalize().equals(normalizedPath))
+                .findFirst()
+                .or(() -> Optional.of(new ArmatureSkinTexture(idPrefix + ":" + stripExtension(normalizedPath.getFileName().toString()), stripExtension(normalizedPath.getFileName().toString()), normalizedPath)));
     }
 
     private static boolean hasFbxExtension(Path path) {
         String fileName = path.getFileName().toString().toLowerCase(Locale.ROOT);
         return fileName.endsWith(".fbx");
+    }
+
+    private static boolean hasTextureExtension(Path path) {
+        String fileName = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        return fileName.endsWith(".png") || fileName.endsWith(".jpg") || fileName.endsWith(".jpeg");
     }
 
     private static boolean isAsciiFbx(Path path) {
@@ -140,5 +230,10 @@ public final class ArmatureSkinManager {
             return value.substring(0, value.length() - 4);
         }
         return value;
+    }
+
+    private static String stripExtension(String value) {
+        int extensionStart = value.lastIndexOf('.');
+        return extensionStart < 0 ? value : value.substring(0, extensionStart);
     }
 }

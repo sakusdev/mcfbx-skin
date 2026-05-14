@@ -9,6 +9,7 @@ import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.resources.ResourceLocation;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
@@ -17,14 +18,17 @@ import java.util.List;
 public final class ArmatureSkinRenderer {
     private ArmatureModel model;
     private ArmatureSkinConfig config = ArmatureSkinConfig.defaults();
+    private ResourceLocation texture;
 
-    public void setModel(ArmatureModel model, ArmatureSkinConfig config) {
+    public void setModel(ArmatureModel model, ArmatureSkinConfig config, ResourceLocation texture) {
         this.model = model;
         this.config = config;
+        this.texture = texture;
     }
 
     public void clear() {
         this.model = null;
+        this.texture = null;
     }
 
     public boolean renderPlayer(AbstractClientPlayer player, float yaw, float tickDelta, PoseStack matrices, MultiBufferSource buffers, int light) {
@@ -45,9 +49,10 @@ public final class ArmatureSkinRenderer {
             }
 
             Matrix4f[] skinMatrices = buildSkinMatrices(current, player, tickDelta);
+            ResourceLocation renderTexture = texture == null ? player.getSkin().texture() : texture;
             RenderType renderType = config.forceOpaqueSkin()
-                    ? RenderType.entitySolid(player.getSkin().texture())
-                    : RenderType.entityCutoutNoCull(player.getSkin().texture());
+                    ? RenderType.entitySolid(renderTexture)
+                    : RenderType.entityCutoutNoCull(renderTexture);
             VertexConsumer consumer = buffers.getBuffer(renderType);
             PoseStack.Pose entry = matrices.last();
 
