@@ -1,4 +1,14 @@
 {
   "key.armature_fbx_skin.reload": "Reload armature FBX skin",
-  "category.armature_fbx_skin": "Armature FBX Skin"
+  "key.armature_fbx_skin.selector": "Open armature FBX skin selector",
+  "category.armature_fbx_skin": "Armature FBX Skin",
+  "screen.armature_fbx_skin.selector.title": "Armature FBX Skins",
+  "screen.armature_fbx_skin.selector.empty": "No FBX skins found",
+  "screen.armature_fbx_skin.selector.selected": "Selected:",
+  "screen.armature_fbx_skin.selector.reload": "Reload",
+  "screen.armature_fbx_skin.selector.open_folder": "Open Folder",
+  "screen.armature_fbx_skin.selector.loaded": "Selected",
+  "screen.armature_fbx_skin.selector.reloaded": "Skin list reloaded",
+  "screen.armature_fbx_skin.selector.load_failed": "Skin action failed",
+  "screen.armature_fbx_skin.selector.count": "%s FBX skins found"
 }

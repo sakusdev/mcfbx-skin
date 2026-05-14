@@ -1,4 +1,14 @@
 {
   "key.armature_fbx_skin.reload": "Armature FBX スキンを再読み込み",
-  "category.armature_fbx_skin": "Armature FBX Skin"
+  "key.armature_fbx_skin.selector": "Armature FBX スキン選択を開く",
+  "category.armature_fbx_skin": "Armature FBX Skin",
+  "screen.armature_fbx_skin.selector.title": "Armature FBX スキン",
+  "screen.armature_fbx_skin.selector.empty": "FBX スキンが見つかりません",
+  "screen.armature_fbx_skin.selector.selected": "選択中:",
+  "screen.armature_fbx_skin.selector.reload": "再読み込み",
+  "screen.armature_fbx_skin.selector.open_folder": "フォルダーを開く",
+  "screen.armature_fbx_skin.selector.loaded": "選択しました",
+  "screen.armature_fbx_skin.selector.reloaded": "スキン一覧を再読み込みしました",
+  "screen.armature_fbx_skin.selector.load_failed": "スキン操作に失敗しました",
+  "screen.armature_fbx_skin.selector.count": "%s 個の FBX スキンが見つかりました"
 }

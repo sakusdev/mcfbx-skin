@@ -7,19 +7,24 @@ Client-only NeoForge mod for Minecraft 1.21.1 that renders an FBX model with an 
 1. Export an ASCII FBX from Blender. Include the mesh, armature, skin weights, UVs, and a material that uses a Minecraft-compatible skin texture layout.
 2. Build the mod with Java 21 and put the generated jar into a NeoForge 1.21.1 client's `mods` folder.
 3. Start Minecraft once so the config file is created at `config/armature-fbx-skin.json`.
-4. Set `fbxPath` to an absolute path, or a path relative to the `.minecraft` game directory.
-5. Press `R` in game to reload the model.
+4. Put ASCII `.fbx` skins in the `.minecraft/fbx` folder. Subfolders are supported.
+5. Set `selectedSkinId` to the discovered skin id, or set `selectedSkinPath` to an absolute path or a path relative to the `.minecraft` game directory.
+6. Press `R` in game to reload the model.
 
 ```json
 {
   "enabled": true,
   "localPlayerOnly": true,
-  "fbxPath": "models/player_ascii.fbx",
+  "selectedSkinId": "",
+  "selectedSkinPath": "",
+  "fbxPath": "",
   "scale": 0.01,
   "yOffset": 0.0,
   "mirrorVanillaSneak": true
 }
 ```
+
+Skin ids are based on the path under `.minecraft/fbx` without the `.fbx` extension. For example, `.minecraft/fbx/player_ascii.fbx` has id `player_ascii`, and `.minecraft/fbx/custom/alex.fbx` has id `custom/alex`. If no configured selection resolves, the first discovered ASCII FBX skin is used. `fbxPath` is kept as a legacy fallback for older configs.
 
 ## Notes
 
