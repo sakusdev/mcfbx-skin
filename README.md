@@ -20,11 +20,12 @@ Client-only NeoForge mod for Minecraft 1.21.1 that renders an FBX model with an 
   "fbxPath": "",
   "scale": 0.01,
   "yOffset": 0.0,
-  "mirrorVanillaSneak": true
+  "mirrorVanillaSneak": true,
+  "forceOpaqueSkin": true
 }
 ```
 
-Skin ids are based on the path under `.minecraft/fbx` without the `.fbx` extension. For example, `.minecraft/fbx/player_ascii.fbx` has id `player_ascii`, and `.minecraft/fbx/custom/alex.fbx` has id `custom/alex`. If no configured selection resolves, the first discovered ASCII FBX skin is used. `fbxPath` is kept as a legacy fallback for older configs.
+Skin ids are based on the path under `.minecraft/fbx` without the `.fbx` extension. For example, `.minecraft/fbx/player_ascii.fbx` has id `player_ascii`, and `.minecraft/fbx/custom/alex.fbx` has id `custom/alex`. If no configured selection resolves, the first discovered ASCII FBX skin is used. `fbxPath` is kept as a legacy fallback for older configs. `forceOpaqueSkin` is enabled by default so transparent pixels in the Minecraft skin overlay do not make FBX surfaces disappear.
 
 ## Notes
 

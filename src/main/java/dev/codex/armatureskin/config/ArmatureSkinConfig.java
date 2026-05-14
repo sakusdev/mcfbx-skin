@@ -19,12 +19,13 @@ public record ArmatureSkinConfig(
         String fbxPath,
         float scale,
         float yOffset,
-        boolean mirrorVanillaSneak
+        boolean mirrorVanillaSneak,
+        boolean forceOpaqueSkin
 ) {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     public static ArmatureSkinConfig defaults() {
-        return new ArmatureSkinConfig(true, true, "", "", "", 0.01F, 0.0F, true);
+        return new ArmatureSkinConfig(true, true, "", "", "", 0.01F, 0.0F, true, true);
     }
 
     public static ArmatureSkinConfig loadOrCreate(Path gameDir) {
@@ -72,7 +73,8 @@ public record ArmatureSkinConfig(
                 fbxPath,
                 scale,
                 yOffset,
-                mirrorVanillaSneak
+                mirrorVanillaSneak,
+                forceOpaqueSkin
         );
     }
 

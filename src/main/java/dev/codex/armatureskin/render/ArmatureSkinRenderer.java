@@ -45,7 +45,10 @@ public final class ArmatureSkinRenderer {
             }
 
             Matrix4f[] skinMatrices = buildSkinMatrices(current, player, tickDelta);
-            VertexConsumer consumer = buffers.getBuffer(RenderType.entityCutoutNoCull(player.getSkin().texture()));
+            RenderType renderType = config.forceOpaqueSkin()
+                    ? RenderType.entitySolid(player.getSkin().texture())
+                    : RenderType.entityCutoutNoCull(player.getSkin().texture());
+            VertexConsumer consumer = buffers.getBuffer(renderType);
             PoseStack.Pose entry = matrices.last();
 
             for (ArmatureModel.Mesh mesh : current.meshes()) {
