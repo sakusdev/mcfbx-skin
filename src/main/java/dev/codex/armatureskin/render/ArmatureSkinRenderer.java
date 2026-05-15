@@ -14,21 +14,29 @@ import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
 import java.util.List;
+import java.util.Map;
 
 public final class ArmatureSkinRenderer {
     private ArmatureModel model;
     private ArmatureSkinConfig config = ArmatureSkinConfig.defaults();
     private ResourceLocation texture;
+    private Map<String, ResourceLocation> materialTextures = Map.of();
 
     public void setModel(ArmatureModel model, ArmatureSkinConfig config, ResourceLocation texture) {
+        setModel(model, config, texture, Map.of());
+    }
+
+    public void setModel(ArmatureModel model, ArmatureSkinConfig config, ResourceLocation texture, Map<String, ResourceLocation> materialTextures) {
         this.model = model;
         this.config = config;
         this.texture = texture;
+        this.materialTextures = Map.copyOf(materialTextures == null ? Map.of() : materialTextures);
     }
 
     public void clear() {
         this.model = null;
         this.texture = null;
+        this.materialTextures = Map.of();
     }
 
     public boolean renderPlayer(AbstractClientPlayer player, float yaw, float tickDelta, PoseStack matrices, MultiBufferSource buffers, int light) {
@@ -49,14 +57,14 @@ public final class ArmatureSkinRenderer {
             }
 
             Matrix4f[] skinMatrices = buildSkinMatrices(current, player, tickDelta);
-            ResourceLocation renderTexture = texture == null ? player.getSkin().texture() : texture;
-            RenderType renderType = config.forceOpaqueSkin()
-                    ? RenderType.entitySolid(renderTexture)
-                    : RenderType.entityCutoutNoCull(renderTexture);
-            VertexConsumer consumer = buffers.getBuffer(renderType);
             PoseStack.Pose entry = matrices.last();
 
             for (ArmatureModel.Mesh mesh : current.meshes()) {
+                ResourceLocation renderTexture = textureForMesh(mesh, player);
+                RenderType renderType = config.forceOpaqueSkin()
+                        ? RenderType.entitySolid(renderTexture)
+                        : RenderType.entityCutoutNoCull(renderTexture);
+                VertexConsumer consumer = buffers.getBuffer(renderType);
                 int[] indices = mesh.indices();
                 List<ArmatureModel.Vertex> meshVertices = mesh.vertices();
                 for (int i = 0; i + 2 < indices.length; i += 3) {
@@ -75,6 +83,14 @@ public final class ArmatureSkinRenderer {
             matrices.popPose();
         }
         return true;
+    }
+
+    private ResourceLocation textureForMesh(ArmatureModel.Mesh mesh, AbstractClientPlayer player) {
+        ResourceLocation materialTexture = materialTextures.get(normalizeMaterialName(mesh.materialName()));
+        if (materialTexture != null) {
+            return materialTexture;
+        }
+        return texture == null ? player.getSkin().texture() : texture;
     }
 
     private Matrix4f[] buildSkinMatrices(ArmatureModel current, AbstractClientPlayer player, float tickDelta) {
@@ -144,5 +160,12 @@ public final class ArmatureSkinRenderer {
             result.add(transformed);
         }
         return result;
+    }
+
+    public static String normalizeMaterialName(String materialName) {
+        if (materialName == null || materialName.isBlank()) {
+            return "";
+        }
+        return materialName.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9._-]+", "_");
     }
 }

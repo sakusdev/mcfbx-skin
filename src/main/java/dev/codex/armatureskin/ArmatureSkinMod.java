@@ -31,7 +31,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 @Mod(value = ArmatureSkinMod.MOD_ID, dist = Dist.CLIENT)
@@ -43,6 +46,7 @@ public final class ArmatureSkinMod {
     private static ArmatureSkinConfig config = ArmatureSkinConfig.defaults();
     private static ArmatureSkinManager skinManager;
     private static ResourceLocation loadedTexture;
+    private static final Map<String, ResourceLocation> loadedMaterialTextures = new HashMap<>();
     private boolean initialReloadDone;
 
     private final KeyMapping reloadKey = new KeyMapping(
@@ -122,8 +126,9 @@ public final class ArmatureSkinMod {
         try {
             ArmatureModel model = new FbxLoader().load(fbxPath);
             ResourceLocation texture = loadSelectedTexture(client);
-            RENDERER.setModel(model, config, texture);
-            LOGGER.info("Loaded armature FBX skin from {} with texture {}", fbxPath, texture == null ? "player skin" : texture);
+            Map<String, ResourceLocation> materialTextures = loadMaterialTextures(client, model);
+            RENDERER.setModel(model, config, texture, materialTextures);
+            LOGGER.info("Loaded armature FBX skin from {} with texture {} and {} material texture(s)", fbxPath, texture == null ? "player skin" : texture, materialTextures.size());
             if (announce && client.player != null) {
                 client.player.sendSystemMessage(Component.literal("Reloaded armature FBX skin."));
             }
@@ -269,10 +274,71 @@ public final class ArmatureSkinMod {
         }
     }
 
+    private static Map<String, ResourceLocation> loadMaterialTextures(Minecraft client, ArmatureModel model) throws IOException {
+        if (client.getTextureManager() == null) {
+            return Map.of();
+        }
+        Map<String, ArmatureSkinTexture> textureByBaseName = new HashMap<>();
+        for (ArmatureSkinTexture texture : skinManager.availableTextures()) {
+            textureByBaseName.put(normalizeName(baseName(texture.path().getFileName().toString())), texture);
+        }
+
+        Map<String, ResourceLocation> textures = new HashMap<>();
+        int index = 0;
+        for (ArmatureModel.Mesh mesh : model.meshes()) {
+            String materialKey = ArmatureSkinRenderer.normalizeMaterialName(mesh.materialName());
+            if (materialKey.isBlank() || textures.containsKey(materialKey)) {
+                continue;
+            }
+            ArmatureSkinTexture matchingTexture = textureByBaseName.get(normalizeName(mesh.materialName()));
+            if (matchingTexture == null || matchingTexture.path() == null || !Files.isRegularFile(matchingTexture.path())) {
+                continue;
+            }
+            ResourceLocation location = loadTexture(client, matchingTexture.path(), "dynamic/material_" + index++);
+            loadedMaterialTextures.put(materialKey, location);
+            textures.put(materialKey, location);
+        }
+        return textures;
+    }
+
+    private static ResourceLocation loadTexture(Minecraft client, Path path, String id) throws IOException {
+        NativeImage image = null;
+        try (InputStream input = Files.newInputStream(path)) {
+            image = NativeImage.read(input);
+            DynamicTexture dynamicTexture = new DynamicTexture(image);
+            image = null;
+            ResourceLocation location = ResourceLocation.fromNamespaceAndPath(MOD_ID, id);
+            client.getTextureManager().register(location, dynamicTexture);
+            return location;
+        } finally {
+            if (image != null) {
+                image.close();
+            }
+        }
+    }
+
     private static void releaseLoadedTexture(Minecraft client) {
+        if (client.getTextureManager() == null) {
+            loadedTexture = null;
+            loadedMaterialTextures.clear();
+            return;
+        }
         if (loadedTexture != null) {
             client.getTextureManager().release(loadedTexture);
             loadedTexture = null;
         }
+        for (ResourceLocation texture : loadedMaterialTextures.values()) {
+            client.getTextureManager().release(texture);
+        }
+        loadedMaterialTextures.clear();
+    }
+
+    private static String baseName(String fileName) {
+        int extensionStart = fileName.lastIndexOf('.');
+        return extensionStart < 0 ? fileName : fileName.substring(0, extensionStart);
+    }
+
+    private static String normalizeName(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]+", "_");
     }
 }

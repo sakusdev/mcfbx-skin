@@ -17,7 +17,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class AsciiFbxLoader {
-    private static final Pattern OBJECT_HEADER = Pattern.compile("(?m)^\\s*(Model|Geometry|Deformer):\\s*(\\d+),\\s*\"([^\"]*)\",\\s*\"([^\"]*)\"\\s*\\{");
+    private static final Pattern OBJECT_HEADER = Pattern.compile("(?m)^\\s*(Model|Geometry|Deformer|Material):\\s*(\\d+),\\s*\"([^\"]*)\",\\s*\"([^\"]*)\"\\s*\\{");
     private static final Pattern CONNECTION = Pattern.compile("(?m)^\\s*C:\\s*\"OO\",\\s*(\\d+),\\s*(\\d+)");
     private static final Pattern PROPERTY = Pattern.compile("(?m)^\\s*P:\\s*\"([^\"]+)\"\\s*,[^\\n\\r]*");
     private static final Pattern NUMBER = Pattern.compile("-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?");
@@ -42,10 +42,11 @@ public final class AsciiFbxLoader {
         List<ArmatureModel.Bone> bones = buildBones(boneIndexById, childToParent, objects);
 
         Map<Long, Map<Integer, List<VertexWeight>>> weightsByGeometry = buildWeights(objects, connections, boneIndexById);
+        Map<Long, List<String>> materialsByGeometry = buildMaterials(objects, connections, childToParent);
         List<ArmatureModel.Mesh> meshes = new ArrayList<>();
         for (FbxObject geometry : objects.values()) {
             if (geometry.kind.equals("Geometry") && geometry.type.toLowerCase(Locale.ROOT).contains("mesh")) {
-                meshes.add(buildMesh(geometry, weightsByGeometry.getOrDefault(geometry.id, Map.of())));
+                meshes.addAll(buildMeshes(geometry, weightsByGeometry.getOrDefault(geometry.id, Map.of()), materialsByGeometry.getOrDefault(geometry.id, List.of())));
             }
         }
 
@@ -179,16 +180,42 @@ public final class AsciiFbxLoader {
         return result;
     }
 
-    private static ArmatureModel.Mesh buildMesh(FbxObject geometry, Map<Integer, List<VertexWeight>> weights) {
+    private static Map<Long, List<String>> buildMaterials(Map<Long, FbxObject> objects, List<long[]> connections, Map<Long, Long> childToParent) {
+        Map<Long, List<String>> result = new HashMap<>();
+        for (FbxObject geometry : objects.values()) {
+            if (!geometry.kind.equals("Geometry")) {
+                continue;
+            }
+            Long modelId = childToParent.get(geometry.id);
+            List<String> materialNames = new ArrayList<>();
+            for (long[] connection : connections) {
+                FbxObject child = objects.get(connection[0]);
+                if (child == null || !child.kind.equals("Material")) {
+                    continue;
+                }
+                if ((modelId != null && connection[1] == modelId) || connection[1] == geometry.id) {
+                    materialNames.add(child.name);
+                }
+            }
+            if (!materialNames.isEmpty()) {
+                result.put(geometry.id, materialNames);
+            }
+        }
+        return result;
+    }
+
+    private static List<ArmatureModel.Mesh> buildMeshes(FbxObject geometry, Map<Integer, List<VertexWeight>> weights, List<String> materialNames) {
         float[] vertices = toFloats(readNumberArray(geometry.body, "Vertices"));
         int[] polygonVertexIndex = toInts(readNumberArray(geometry.body, "PolygonVertexIndex"));
         float[] uv = toFloats(readNumberArray(geometry.body, "UV"));
         int[] uvIndex = toInts(readNumberArray(geometry.body, "UVIndex"));
+        int[] materialIndices = toInts(readNumberArray(geometry.body, "Materials"));
 
         List<ArmatureModel.Vertex> outVertices = new ArrayList<>();
-        List<Integer> outIndices = new ArrayList<>();
+        Map<String, List<Integer>> indicesByMaterial = new java.util.LinkedHashMap<>();
         List<Corner> polygon = new ArrayList<>();
         int cornerIndex = 0;
+        int polygonIndex = 0;
 
         for (int raw : polygonVertexIndex) {
             boolean end = raw < 0;
@@ -198,16 +225,22 @@ public final class AsciiFbxLoader {
             cornerIndex++;
 
             if (end) {
+                String materialName = materialName(materialNames, materialIndices, polygonIndex);
+                List<Integer> outIndices = indicesByMaterial.computeIfAbsent(materialName, ignored -> new ArrayList<>());
                 for (int i = 1; i + 1 < polygon.size(); i++) {
                     outIndices.add(polygon.get(0).index);
                     outIndices.add(polygon.get(i).index);
                     outIndices.add(polygon.get(i + 1).index);
                 }
                 polygon.clear();
+                polygonIndex++;
             }
         }
 
-        return new ArmatureModel.Mesh(outVertices, outIndices.stream().mapToInt(Integer::intValue).toArray());
+        return indicesByMaterial.entrySet().stream()
+                .map(entry -> new ArmatureModel.Mesh(entry.getKey(), outVertices, entry.getValue().stream().mapToInt(Integer::intValue).toArray()))
+                .filter(mesh -> mesh.indices().length > 0)
+                .toList();
     }
 
     private static int appendVertex(List<ArmatureModel.Vertex> out, float[] positions, float[] uv, int[] uvIndex, int cornerIndex, int controlPoint, Map<Integer, List<VertexWeight>> weights) {
@@ -345,6 +378,14 @@ public final class AsciiFbxLoader {
     private static String cleanName(String raw) {
         int marker = raw.indexOf("::");
         return marker >= 0 ? raw.substring(marker + 2) : raw;
+    }
+
+    private static String materialName(List<String> materialNames, int[] materialIndices, int polygonIndex) {
+        int materialIndex = polygonIndex < materialIndices.length ? materialIndices[polygonIndex] : 0;
+        if (materialIndex >= 0 && materialIndex < materialNames.size()) {
+            return materialNames.get(materialIndex);
+        }
+        return materialNames.isEmpty() ? "" : materialNames.get(0);
     }
 
     private record FbxObject(String kind, long id, String name, String type, String body) {
