@@ -17,7 +17,10 @@ public record ArmatureModel(List<Bone> bones, List<Mesh> meshes) {
     public record Bone(long id, String name, int parentIndex, Matrix4f localBindTransform, Matrix4f inverseBindTransform) {
     }
 
-    public record Mesh(List<Vertex> vertices, int[] indices) {
+    public record Mesh(String materialName, List<Vertex> vertices, int[] indices) {
+        public Mesh(List<Vertex> vertices, int[] indices) {
+            this("", vertices, indices);
+        }
     }
 
     public record Vertex(float x, float y, float z, float u, float v, int[] boneIndices, float[] weights) {
