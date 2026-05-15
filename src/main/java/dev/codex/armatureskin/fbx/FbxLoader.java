@@ -3,6 +3,7 @@ package dev.codex.armatureskin.fbx;
 import dev.codex.armatureskin.model.ArmatureModel;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -12,11 +13,14 @@ public final class FbxLoader {
     };
 
     public ArmatureModel load(Path path) throws IOException {
-        byte[] prefix = Files.readAllBytes(path);
-        if (isBinary(prefix)) {
-            return new BinaryFbxLoader().load(prefix);
+        return load(Files.readAllBytes(path), path.toString());
+    }
+
+    public ArmatureModel load(byte[] data, String sourceName) throws IOException {
+        if (isBinary(data)) {
+            return new BinaryFbxLoader().load(data);
         }
-        return new AsciiFbxLoader().load(path);
+        return new AsciiFbxLoader().loadText(new String(data, StandardCharsets.UTF_8), sourceName);
     }
 
     private static boolean isBinary(byte[] data) {
