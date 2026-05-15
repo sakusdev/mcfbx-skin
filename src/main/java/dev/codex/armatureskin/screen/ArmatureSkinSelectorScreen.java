@@ -66,7 +66,7 @@ public final class ArmatureSkinSelectorScreen extends Screen {
 
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(guiGraphics, mouseX, mouseY, partialTick);
+        guiGraphics.fill(0, 0, width, height, 0xD0101010);
         guiGraphics.drawCenteredString(font, title, width / 2, 16, 0xFFFFFF);
         guiGraphics.drawString(font, SKINS, leftX(), TOP - 16, 0xD8D8D8);
         guiGraphics.drawString(font, TEXTURES, rightX(), TOP - 16, 0xD8D8D8);
