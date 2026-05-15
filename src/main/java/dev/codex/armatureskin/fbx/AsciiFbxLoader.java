@@ -24,6 +24,10 @@ public final class AsciiFbxLoader {
 
     public ArmatureModel load(Path path) throws IOException {
         String text = Files.readString(path);
+        return loadText(text, path.toString());
+    }
+
+    public ArmatureModel loadText(String text, String sourceName) throws IOException {
         if (text.indexOf('\0') >= 0 || !text.contains("FBXHeaderExtension")) {
             throw new IOException("Only ASCII FBX files are supported by this loader.");
         }

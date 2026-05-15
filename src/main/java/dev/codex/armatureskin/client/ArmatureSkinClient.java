@@ -1,35 +1,45 @@
-package dev.codex.armatureskin;
+package dev.codex.armatureskin.client;
 
-import dev.codex.armatureskin.client.ArmatureSkinClient;
-import dev.codex.armatureskin.network.Mc3dSkinNetwork;
-import net.neoforged.api.distmarker.Dist;
+import com.mojang.blaze3d.platform.NativeImage;
+import dev.codex.armatureskin.ArmatureSkinMod;
+import dev.codex.armatureskin.config.ArmatureSkinConfig;
+import dev.codex.armatureskin.fbx.FbxLoader;
+import dev.codex.armatureskin.model.ArmatureModel;
+import dev.codex.armatureskin.packageformat.Mc3dSkinContent;
+import dev.codex.armatureskin.packageformat.Mc3dSkinLoadContext;
+import dev.codex.armatureskin.packageformat.Mc3dSkinPackageLoader;
+import dev.codex.armatureskin.packageformat.license.ServerHandshakeLicenseProvider;
+import dev.codex.armatureskin.render.ArmatureSkinRenderer;
+import dev.codex.armatureskin.screen.ArmatureSkinSelectionApi;
+import dev.codex.armatureskin.screen.ArmatureSkinSelectorScreen;
+import dev.codex.armatureskin.skin.ArmatureSkin;
+import dev.codex.armatureskin.skin.ArmatureSkinManager;
+import dev.codex.armatureskin.skin.ArmatureSkinTexture;
+import net.minecraft.Util;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.neoforged.bus.api.IEventBus;
-import net.neoforged.fml.common.Mod;
-import net.neoforged.fml.loading.FMLEnvironment;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
+import net.neoforged.neoforge.client.event.RenderPlayerEvent;
+import net.neoforged.neoforge.common.NeoForge;
+import org.lwjgl.glfw.GLFW;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.Optional;
 
-@Mod(value = ArmatureSkinMod.MOD_ID, dist = Dist.CLIENT)
-public final class ArmatureSkinMod {
-    public static final String MOD_ID = "armature_fbx_skin";
-    public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
-
+public final class ArmatureSkinClient {
     private static final ArmatureSkinRenderer RENDERER = new ArmatureSkinRenderer();
     private static ArmatureSkinConfig config = ArmatureSkinConfig.defaults();
     private static ArmatureSkinManager skinManager;
     private static ResourceLocation loadedTexture;
-    private static final Map<String, ResourceLocation> loadedMaterialTextures = new HashMap<>();
-    private boolean initialReloadDone;
 
     private final KeyMapping reloadKey = new KeyMapping(
             "key.armature_fbx_skin.reload",
@@ -41,8 +51,13 @@ public final class ArmatureSkinMod {
             GLFW.GLFW_KEY_K,
             "category.armature_fbx_skin"
     );
+    private boolean initialReloadDone;
 
-    public ArmatureSkinMod(IEventBus modBus) {
+    public static void init(IEventBus modBus) {
+        new ArmatureSkinClient(modBus);
+    }
+
+    private ArmatureSkinClient(IEventBus modBus) {
         modBus.addListener(this::registerKeys);
         NeoForge.EVENT_BUS.addListener(this::onClientTick);
         NeoForge.EVENT_BUS.addListener(this::onRenderPlayer);
@@ -67,6 +82,7 @@ public final class ArmatureSkinMod {
 
     private void onClientTick(ClientTickEvent.Post event) {
         Minecraft client = Minecraft.getInstance();
+        sendPendingLicenseRequests();
         if (!initialReloadDone) {
             initialReloadDone = true;
             reloadModel(client, false);
@@ -86,19 +102,25 @@ public final class ArmatureSkinMod {
         }
     }
 
+    private static void sendPendingLicenseRequests() {
+        for (var request : ServerHandshakeLicenseProvider.drainPendingRequests()) {
+            dev.codex.armatureskin.network.Mc3dSkinNetwork.sendLicenseRequestToServer(request);
+        }
+    }
+
     private static void reloadModel(Minecraft client, boolean announce) {
         config = ArmatureSkinConfig.loadOrCreate(client.gameDirectory.toPath());
         skinManager = ArmatureSkinManager.discover(client.gameDirectory.toPath(), config);
         RENDERER.clear();
 
         if (!config.enabled()) {
-            LOGGER.info("Armature FBX skin is disabled.");
+            ArmatureSkinMod.LOGGER.info("Armature FBX skin is disabled.");
             return;
         }
 
         Path fbxPath = skinManager.resolveSelectedPath().orElse(null);
         if (fbxPath == null || !Files.isRegularFile(fbxPath)) {
-            LOGGER.warn("Armature FBX skin file was not found: {}", fbxPath);
+            ArmatureSkinMod.LOGGER.warn("Armature FBX skin file was not found: {}", fbxPath);
             if (announce && client.player != null) {
                 client.player.sendSystemMessage(Component.literal("No FBX skin found in " + client.gameDirectory.toPath().resolve(ArmatureSkinManager.SKIN_DIRECTORY) + ". Press K to open selector."));
             }
@@ -106,16 +128,25 @@ public final class ArmatureSkinMod {
         }
 
         try {
-            ArmatureModel model = new FbxLoader().load(fbxPath);
-            ResourceLocation texture = loadSelectedTexture(client);
-            Map<String, ResourceLocation> materialTextures = loadMaterialTextures(client, model);
-            RENDERER.setModel(model, config, texture, materialTextures);
-            LOGGER.info("Loaded armature FBX skin from {} with texture {} and {} material texture(s)", fbxPath, texture == null ? "player skin" : texture, materialTextures.size());
+            ArmatureSkin selectedSkin = skinManager.resolveSelectedSkin().orElse(null);
+            ArmatureModel model;
+            ResourceLocation texture;
+            if (selectedSkin != null && selectedSkin.packageSkin()) {
+                Mc3dSkinLoadContext context = Mc3dSkinLoadContext.fromMinecraft(client);
+                Mc3dSkinContent content = Mc3dSkinPackageLoader.defaultClientLoader(context).load(fbxPath, context);
+                model = new FbxLoader().load(content.modelBytes(), content.manifest().model());
+                texture = loadPackagedTexture(client, content);
+            } else {
+                model = new FbxLoader().load(fbxPath);
+                texture = loadSelectedTexture(client);
+            }
+            RENDERER.setModel(model, config, texture);
+            ArmatureSkinMod.LOGGER.info("Loaded armature FBX skin from {} with texture {}", fbxPath, texture == null ? "player skin" : texture);
             if (announce && client.player != null) {
                 client.player.sendSystemMessage(Component.literal("Reloaded armature FBX skin."));
             }
         } catch (Exception ex) {
-            LOGGER.error("Failed to load armature FBX skin from {}", fbxPath, ex);
+            ArmatureSkinMod.LOGGER.error("Failed to load armature FBX skin from {}", fbxPath, ex);
             if (announce && client.player != null) {
                 client.player.sendSystemMessage(Component.literal("Failed to load armature FBX skin: " + ex.getMessage()));
             }
@@ -137,15 +168,13 @@ public final class ArmatureSkinMod {
             @Override
             public List<SkinEntry> listSkins() {
                 refreshSkins(client);
-                return skinManager.availableSkins().stream()
-                        .map(ArmatureSkinMod::toEntry)
-                        .toList();
+                return skinManager.availableSkins().stream().map(ArmatureSkinClient::toEntry).toList();
             }
 
             @Override
             public Optional<SkinEntry> selectedSkin() {
                 refreshSkins(client);
-                return skinManager.resolveSelectedSkin().map(ArmatureSkinMod::toEntry);
+                return skinManager.resolveSelectedSkin().map(ArmatureSkinClient::toEntry);
             }
 
             @Override
@@ -180,11 +209,7 @@ public final class ArmatureSkinMod {
             @Override
             public List<TextureEntry> listTextures(SkinEntry skin) {
                 refreshSkins(client);
-                ArmatureSkin selected = skinManager.findById(skin.id())
-                        .orElseGet(() -> new ArmatureSkin(skin.id(), skin.displayName().getString(), skin.path()));
-                return skinManager.availableTextures().stream()
-                        .map(ArmatureSkinMod::toTextureEntry)
-                        .toList();
+                return skinManager.availableTextures().stream().map(ArmatureSkinClient::toTextureEntry).toList();
             }
 
             @Override
@@ -192,7 +217,7 @@ public final class ArmatureSkinMod {
                 refreshSkins(client);
                 ArmatureSkin selected = skinManager.findById(skin.id())
                         .orElseGet(() -> new ArmatureSkin(skin.id(), skin.displayName().getString(), skin.path()));
-                return skinManager.resolveSelectedTexture(selected).map(ArmatureSkinMod::toTextureEntry);
+                return skinManager.resolveSelectedTexture(selected).map(ArmatureSkinClient::toTextureEntry);
             }
 
             @Override
@@ -246,7 +271,7 @@ public final class ArmatureSkinMod {
             image = NativeImage.read(input);
             DynamicTexture dynamicTexture = new DynamicTexture(image);
             image = null;
-            loadedTexture = ResourceLocation.fromNamespaceAndPath(MOD_ID, "dynamic/armature_skin");
+            loadedTexture = ResourceLocation.fromNamespaceAndPath(ArmatureSkinMod.MOD_ID, "dynamic/armature_skin");
             client.getTextureManager().register(loadedTexture, dynamicTexture);
             return loadedTexture;
         } finally {
@@ -256,42 +281,24 @@ public final class ArmatureSkinMod {
         }
     }
 
-    private static Map<String, ResourceLocation> loadMaterialTextures(Minecraft client, ArmatureModel model) throws IOException {
+    private static ResourceLocation loadPackagedTexture(Minecraft client, Mc3dSkinContent content) throws IOException {
+        releaseLoadedTexture(client);
         if (client.getTextureManager() == null) {
-            return Map.of();
+            return null;
         }
-        Map<String, ArmatureSkinTexture> textureByBaseName = new HashMap<>();
-        for (ArmatureSkinTexture texture : skinManager.availableTextures()) {
-            textureByBaseName.put(normalizeName(baseName(texture.path().getFileName().toString())), texture);
+        Mc3dSkinContent.Texture texture = content.preferredTexture().orElse(null);
+        if (texture == null) {
+            return null;
         }
 
-        Map<String, ResourceLocation> textures = new HashMap<>();
-        int index = 0;
-        for (ArmatureModel.Mesh mesh : model.meshes()) {
-            String materialKey = ArmatureSkinRenderer.normalizeMaterialName(mesh.materialName());
-            if (materialKey.isBlank() || textures.containsKey(materialKey)) {
-                continue;
-            }
-            ArmatureSkinTexture matchingTexture = textureByBaseName.get(normalizeName(mesh.materialName()));
-            if (matchingTexture == null || matchingTexture.path() == null || !Files.isRegularFile(matchingTexture.path())) {
-                continue;
-            }
-            ResourceLocation location = loadTexture(client, matchingTexture.path(), "dynamic/material_" + index++);
-            loadedMaterialTextures.put(materialKey, location);
-            textures.put(materialKey, location);
-        }
-        return textures;
-    }
-
-    private static ResourceLocation loadTexture(Minecraft client, Path path, String id) throws IOException {
         NativeImage image = null;
-        try (InputStream input = Files.newInputStream(path)) {
+        try (InputStream input = new java.io.ByteArrayInputStream(texture.bytes())) {
             image = NativeImage.read(input);
             DynamicTexture dynamicTexture = new DynamicTexture(image);
             image = null;
-            ResourceLocation location = ResourceLocation.fromNamespaceAndPath(MOD_ID, id);
-            client.getTextureManager().register(location, dynamicTexture);
-            return location;
+            loadedTexture = ResourceLocation.fromNamespaceAndPath(ArmatureSkinMod.MOD_ID, "dynamic/armature_skin");
+            client.getTextureManager().register(loadedTexture, dynamicTexture);
+            return loadedTexture;
         } finally {
             if (image != null) {
                 image.close();
@@ -300,27 +307,9 @@ public final class ArmatureSkinMod {
     }
 
     private static void releaseLoadedTexture(Minecraft client) {
-        if (client.getTextureManager() == null) {
-            loadedTexture = null;
-            loadedMaterialTextures.clear();
-            return;
-        }
-        if (loadedTexture != null) {
+        if (loadedTexture != null && client.getTextureManager() != null) {
             client.getTextureManager().release(loadedTexture);
             loadedTexture = null;
         }
-        for (ResourceLocation texture : loadedMaterialTextures.values()) {
-            client.getTextureManager().release(texture);
-        }
-        loadedMaterialTextures.clear();
-    }
-
-    private static String baseName(String fileName) {
-        int extensionStart = fileName.lastIndexOf('.');
-        return extensionStart < 0 ? fileName : fileName.substring(0, extensionStart);
-    }
-
-    private static String normalizeName(String value) {
-        return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]+", "_");
     }
 }
