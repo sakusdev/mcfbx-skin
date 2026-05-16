@@ -34,20 +34,18 @@ public final class AsciiFbxLoader {
 
         Map<Long, FbxObject> objects = parseObjects(text);
         List<long[]> connections = parseConnections(text);
-        Map<Long, Long> childToParent = new HashMap<>();
-        for (long[] connection : connections) {
-            childToParent.put(connection[0], connection[1]);
-        }
+        Map<Long, Long> modelParentByChild = buildModelParentMap(objects, connections);
 
         List<FbxObject> boneObjects = objects.values().stream()
                 .filter(obj -> obj.kind.equals("Model") && obj.type.toLowerCase(Locale.ROOT).contains("limbnode"))
                 .toList();
-        Map<Long, Integer> boneIndexById = buildBoneIndexMap(boneObjects, childToParent, objects);
+        Map<Long, Integer> boneIndexById = buildBoneIndexMap(boneObjects, modelParentByChild, objects);
         Map<Integer, Matrix4f> globalBindByBone = buildClusterGlobalBinds(objects, connections, boneIndexById);
-        List<ArmatureModel.Bone> bones = buildBones(boneIndexById, childToParent, objects, globalBindByBone);
+        List<ArmatureModel.Bone> bones = buildBones(boneIndexById, modelParentByChild, objects, globalBindByBone);
 
         Map<Long, Map<Integer, List<VertexWeight>>> weightsByGeometry = buildWeights(objects, connections, boneIndexById);
-        Map<Long, List<String>> materialsByGeometry = buildMaterials(objects, connections, childToParent);
+        Map<Long, Long> geometryToModel = buildGeometryModelMap(objects, connections);
+        Map<Long, List<String>> materialsByGeometry = buildMaterials(objects, connections, geometryToModel);
         List<ArmatureModel.Mesh> meshes = new ArrayList<>();
         for (FbxObject geometry : objects.values()) {
             if (geometry.kind.equals("Geometry") && geometry.type.toLowerCase(Locale.ROOT).contains("mesh")) {
@@ -92,6 +90,30 @@ public final class AsciiFbxLoader {
             connections.add(new long[]{Long.parseLong(matcher.group(1)), Long.parseLong(matcher.group(2))});
         }
         return connections;
+    }
+
+    private static Map<Long, Long> buildModelParentMap(Map<Long, FbxObject> objects, List<long[]> connections) {
+        Map<Long, Long> result = new HashMap<>();
+        for (long[] connection : connections) {
+            FbxObject child = objects.get(connection[0]);
+            FbxObject parent = objects.get(connection[1]);
+            if (child != null && parent != null && child.kind.equals("Model") && parent.kind.equals("Model")) {
+                result.put(child.id, parent.id);
+            }
+        }
+        return result;
+    }
+
+    private static Map<Long, Long> buildGeometryModelMap(Map<Long, FbxObject> objects, List<long[]> connections) {
+        Map<Long, Long> result = new HashMap<>();
+        for (long[] connection : connections) {
+            FbxObject child = objects.get(connection[0]);
+            FbxObject parent = objects.get(connection[1]);
+            if (child != null && parent != null && child.kind.equals("Geometry") && parent.kind.equals("Model")) {
+                result.put(child.id, parent.id);
+            }
+        }
+        return result;
     }
 
     private static Map<Long, Integer> buildBoneIndexMap(List<FbxObject> bones, Map<Long, Long> childToParent, Map<Long, FbxObject> objects) {
@@ -159,10 +181,10 @@ public final class AsciiFbxLoader {
             FbxObject child = objects.get(connection[0]);
             FbxObject parent = objects.get(connection[1]);
             if (child != null && parent != null
-                    && child.kind.equals("Deformer")
-                    && child.type.toLowerCase(Locale.ROOT).contains("cluster")
-                    && parent.kind.equals("Model")) {
-                clusterToBone.put(child.id, parent.id);
+                    && child.kind.equals("Model")
+                    && parent.kind.equals("Deformer")
+                    && parent.type.toLowerCase(Locale.ROOT).contains("cluster")) {
+                clusterToBone.put(parent.id, child.id);
             }
         }
 
@@ -193,8 +215,8 @@ public final class AsciiFbxLoader {
                 continue;
             }
             String childType = child.type.toLowerCase(Locale.ROOT);
-            if (child.kind.equals("Deformer") && childType.contains("cluster") && parent != null && parent.kind.equals("Model")) {
-                clusterToBone.put(child.id, parent.id);
+            if (child.kind.equals("Model") && parent != null && parent.kind.equals("Deformer") && parent.type.toLowerCase(Locale.ROOT).contains("cluster")) {
+                clusterToBone.put(parent.id, child.id);
             } else if (child.kind.equals("Deformer") && childType.contains("cluster") && parent != null && parent.kind.equals("Deformer")) {
                 clusterToSkin.put(child.id, parent.id);
             } else if (child.kind.equals("Deformer") && childType.contains("skin") && parent != null && parent.kind.equals("Geometry")) {
@@ -223,13 +245,13 @@ public final class AsciiFbxLoader {
         return result;
     }
 
-    private static Map<Long, List<String>> buildMaterials(Map<Long, FbxObject> objects, List<long[]> connections, Map<Long, Long> childToParent) {
+    private static Map<Long, List<String>> buildMaterials(Map<Long, FbxObject> objects, List<long[]> connections, Map<Long, Long> geometryToModel) {
         Map<Long, List<String>> result = new HashMap<>();
         for (FbxObject geometry : objects.values()) {
             if (!geometry.kind.equals("Geometry")) {
                 continue;
             }
-            Long modelId = childToParent.get(geometry.id);
+            Long modelId = geometryToModel.get(geometry.id);
             List<String> materialNames = new ArrayList<>();
             for (long[] connection : connections) {
                 FbxObject child = objects.get(connection[0]);
