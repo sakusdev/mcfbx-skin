@@ -74,9 +74,7 @@ public final class ArmatureSkinRenderer {
                     continue;
                 }
                 ResourceLocation renderTexture = textureForMesh(mesh, player);
-                RenderType renderType = config.forceOpaqueSkin()
-                        ? RenderType.entitySolid(renderTexture)
-                        : RenderType.entityCutoutNoCull(renderTexture);
+                RenderType renderType = RenderType.entityCutoutNoCull(renderTexture);
                 VertexConsumer consumer = buffers.getBuffer(renderType);
                 int[] indices = mesh.indices();
                 List<ArmatureModel.Vertex> meshVertices = mesh.vertices();
@@ -164,6 +162,7 @@ public final class ArmatureSkinRenderer {
 
         Vector3f result = new Vector3f();
         Vector3f source = new Vector3f(vertex.x(), vertex.y(), vertex.z());
+        float appliedWeight = 0.0F;
         for (int i = 0; i < boneIndices.length && i < weights.length; i++) {
             int boneIndex = boneIndices[i];
             if (boneIndex < 0 || boneIndex >= skinMatrices.length || weights[i] <= 0.0F) {
@@ -171,6 +170,13 @@ public final class ArmatureSkinRenderer {
             }
             Vector3f transformed = new Vector3f(source).mulPosition(skinMatrices[boneIndex]).mul(weights[i]);
             result.add(transformed);
+            appliedWeight += weights[i];
+        }
+        if (appliedWeight <= 0.0001F) {
+            return source;
+        }
+        if (appliedWeight < 0.999F) {
+            result.fma(1.0F - appliedWeight, source);
         }
         return result;
     }

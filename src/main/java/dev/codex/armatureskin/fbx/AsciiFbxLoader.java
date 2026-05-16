@@ -43,7 +43,8 @@ public final class AsciiFbxLoader {
                 .filter(obj -> obj.kind.equals("Model") && obj.type.toLowerCase(Locale.ROOT).contains("limbnode"))
                 .toList();
         Map<Long, Integer> boneIndexById = buildBoneIndexMap(boneObjects, childToParent, objects);
-        List<ArmatureModel.Bone> bones = buildBones(boneIndexById, childToParent, objects);
+        Map<Integer, Matrix4f> globalBindByBone = buildClusterGlobalBinds(objects, connections, boneIndexById);
+        List<ArmatureModel.Bone> bones = buildBones(boneIndexById, childToParent, objects, globalBindByBone);
 
         Map<Long, Map<Integer, List<VertexWeight>>> weightsByGeometry = buildWeights(objects, connections, boneIndexById);
         Map<Long, List<String>> materialsByGeometry = buildMaterials(objects, connections, childToParent);
@@ -118,7 +119,7 @@ public final class AsciiFbxLoader {
         }
     }
 
-    private static List<ArmatureModel.Bone> buildBones(Map<Long, Integer> boneIndexById, Map<Long, Long> childToParent, Map<Long, FbxObject> objects) {
+    private static List<ArmatureModel.Bone> buildBones(Map<Long, Integer> boneIndexById, Map<Long, Long> childToParent, Map<Long, FbxObject> objects, Map<Integer, Matrix4f> globalBindByBone) {
         ArmatureModel.Bone[] bones = new ArmatureModel.Bone[boneIndexById.size()];
         Matrix4f[] globals = new Matrix4f[boneIndexById.size()];
 
@@ -133,13 +134,51 @@ public final class AsciiFbxLoader {
                         parentIndex = boneIndexById.get(parentId);
                     }
 
-                    Matrix4f local = localTransform(object.body);
-                    Matrix4f global = parentIndex >= 0 ? new Matrix4f(globals[parentIndex]).mul(local) : new Matrix4f(local);
+                    Matrix4f globalBind = globalBindByBone.get(index);
+                    Matrix4f local;
+                    Matrix4f global;
+                    if (globalBind != null) {
+                        global = new Matrix4f(globalBind);
+                        local = parentIndex >= 0 && globals[parentIndex] != null
+                                ? new Matrix4f(globals[parentIndex]).invert().mul(global)
+                                : new Matrix4f(global);
+                    } else {
+                        local = localTransform(object.body);
+                        global = parentIndex >= 0 ? new Matrix4f(globals[parentIndex]).mul(local) : new Matrix4f(local);
+                    }
                     globals[index] = global;
                     bones[index] = new ArmatureModel.Bone(object.id, object.name, parentIndex, local, new Matrix4f(global).invert());
                 });
 
         return List.of(bones);
+    }
+
+    private static Map<Integer, Matrix4f> buildClusterGlobalBinds(Map<Long, FbxObject> objects, List<long[]> connections, Map<Long, Integer> boneIndexById) {
+        Map<Long, Long> clusterToBone = new HashMap<>();
+        for (long[] connection : connections) {
+            FbxObject child = objects.get(connection[0]);
+            FbxObject parent = objects.get(connection[1]);
+            if (child != null && parent != null
+                    && child.kind.equals("Deformer")
+                    && child.type.toLowerCase(Locale.ROOT).contains("cluster")
+                    && parent.kind.equals("Model")) {
+                clusterToBone.put(child.id, parent.id);
+            }
+        }
+
+        Map<Integer, Matrix4f> globalBinds = new HashMap<>();
+        for (Map.Entry<Long, Long> entry : clusterToBone.entrySet()) {
+            Integer boneIndex = boneIndexById.get(entry.getValue());
+            FbxObject cluster = objects.get(entry.getKey());
+            if (boneIndex == null || cluster == null || globalBinds.containsKey(boneIndex)) {
+                continue;
+            }
+            float[] transformLink = toFloats(readNumberArray(cluster.body, "TransformLink"));
+            if (transformLink.length == 16) {
+                globalBinds.put(boneIndex, matrixFromFbx(transformLink));
+            }
+        }
+        return globalBinds;
     }
 
     private static Map<Long, Map<Integer, List<VertexWeight>>> buildWeights(Map<Long, FbxObject> objects, List<long[]> connections, Map<Long, Integer> boneIndexById) {
@@ -300,6 +339,15 @@ public final class AsciiFbxLoader {
                 .translate(t[0], t[1], t[2])
                 .rotateXYZ((float) Math.toRadians(r[0]), (float) Math.toRadians(r[1]), (float) Math.toRadians(r[2]))
                 .scale(s[0], s[1], s[2]);
+    }
+
+    private static Matrix4f matrixFromFbx(float[] values) {
+        return new Matrix4f(
+                values[0], values[1], values[2], values[3],
+                values[4], values[5], values[6], values[7],
+                values[8], values[9], values[10], values[11],
+                values[12], values[13], values[14], values[15]
+        ).transpose();
     }
 
     private static float[] propertyVec3(String body, String name, float x, float y, float z) {
