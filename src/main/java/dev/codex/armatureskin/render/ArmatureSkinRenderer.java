@@ -23,22 +23,29 @@ public final class ArmatureSkinRenderer {
     private ArmatureSkinConfig config = ArmatureSkinConfig.defaults();
     private ResourceLocation texture;
     private Map<String, ResourceLocation> materialTextures = Map.of();
+    private Map<String, ResourceLocation> meshTextures = Map.of();
 
     public void setModel(ArmatureModel model, ArmatureSkinConfig config, ResourceLocation texture) {
-        setModel(model, config, texture, Map.of());
+        setModel(model, config, texture, Map.of(), Map.of());
     }
 
     public void setModel(ArmatureModel model, ArmatureSkinConfig config, ResourceLocation texture, Map<String, ResourceLocation> materialTextures) {
+        setModel(model, config, texture, materialTextures, Map.of());
+    }
+
+    public void setModel(ArmatureModel model, ArmatureSkinConfig config, ResourceLocation texture, Map<String, ResourceLocation> materialTextures, Map<String, ResourceLocation> meshTextures) {
         this.model = model;
         this.config = config;
         this.texture = texture;
         this.materialTextures = Map.copyOf(materialTextures == null ? Map.of() : materialTextures);
+        this.meshTextures = Map.copyOf(meshTextures == null ? Map.of() : meshTextures);
     }
 
     public void clear() {
         this.model = null;
         this.texture = null;
         this.materialTextures = Map.of();
+        this.meshTextures = Map.of();
     }
 
     public boolean renderPlayer(AbstractClientPlayer player, float yaw, float tickDelta, PoseStack matrices, MultiBufferSource buffers, int light) {
@@ -74,7 +81,7 @@ public final class ArmatureSkinRenderer {
                     continue;
                 }
                 ResourceLocation renderTexture = textureForMesh(mesh, player);
-                RenderType renderType = RenderType.entityCutoutNoCull(renderTexture);
+                RenderType renderType = RenderType.entityCutout(renderTexture);
                 VertexConsumer consumer = buffers.getBuffer(renderType);
                 int[] indices = mesh.indices();
                 List<ArmatureModel.Vertex> meshVertices = mesh.vertices();
@@ -97,6 +104,10 @@ public final class ArmatureSkinRenderer {
     }
 
     private ResourceLocation textureForMesh(ArmatureModel.Mesh mesh, AbstractClientPlayer player) {
+        ResourceLocation assignedTexture = meshTextures.get(mesh.key());
+        if (assignedTexture != null) {
+            return assignedTexture;
+        }
         ResourceLocation materialTexture = materialTextures.get(normalizeMaterialName(mesh.materialName()));
         if (materialTexture != null) {
             return materialTexture;

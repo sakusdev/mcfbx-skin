@@ -31,6 +31,12 @@ public interface ArmatureSkinSelectionApi {
     default void selectTexture(SkinEntry skin, TextureEntry texture) {
     }
 
+    default void assignTextureToMesh(SkinEntry skin, String meshKey, TextureEntry texture) {
+    }
+
+    default void toggleMesh(SkinEntry skin, String meshKey) {
+    }
+
     default void reloadTextures(SkinEntry skin) {
     }
 

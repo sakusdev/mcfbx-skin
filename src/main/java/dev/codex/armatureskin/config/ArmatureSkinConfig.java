@@ -14,6 +14,8 @@ import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -25,6 +27,7 @@ public record ArmatureSkinConfig(
         String selectedTextureId,
         String selectedTexturePath,
         String disabledMeshKeys,
+        Map<String, String> meshTextureAssignments,
         String fbxPath,
         float scale,
         float yOffset,
@@ -44,7 +47,7 @@ public record ArmatureSkinConfig(
             boolean mirrorVanillaSneak,
             boolean forceOpaqueSkin
     ) {
-        this(enabled, localPlayerOnly, selectedSkinId, selectedSkinPath, "", "", "", fbxPath, scale, yOffset, mirrorVanillaSneak, forceOpaqueSkin);
+        this(enabled, localPlayerOnly, selectedSkinId, selectedSkinPath, "", "", "", Map.of(), fbxPath, scale, yOffset, mirrorVanillaSneak, forceOpaqueSkin);
     }
 
     public ArmatureSkinConfig {
@@ -53,11 +56,12 @@ public record ArmatureSkinConfig(
         selectedTextureId = selectedTextureId == null ? "" : selectedTextureId;
         selectedTexturePath = selectedTexturePath == null ? "" : selectedTexturePath;
         disabledMeshKeys = disabledMeshKeys == null ? "" : disabledMeshKeys;
+        meshTextureAssignments = cleanAssignments(meshTextureAssignments);
         fbxPath = fbxPath == null ? "" : fbxPath;
     }
 
     public static ArmatureSkinConfig defaults() {
-        return new ArmatureSkinConfig(true, true, "", "", "", "", "", "", 1.0F, 0.0F, true, false);
+        return new ArmatureSkinConfig(true, true, "", "", "", "", "", Map.of(), "", 1.0F, 0.0F, true, false);
     }
 
     public static ArmatureSkinConfig loadOrCreate(Path gameDir) {
@@ -82,6 +86,7 @@ public record ArmatureSkinConfig(
                         string(json, "selectedTextureId", defaults.selectedTextureId),
                         string(json, "selectedTexturePath", defaults.selectedTexturePath),
                         string(json, "disabledMeshKeys", defaults.disabledMeshKeys),
+                        stringMap(json, "meshTextureAssignments"),
                         string(json, "fbxPath", defaults.fbxPath),
                         number(json, "scale", defaults.scale),
                         number(json, "yOffset", defaults.yOffset),
@@ -104,6 +109,33 @@ public record ArmatureSkinConfig(
 
     private static float number(JsonObject json, String key, float fallback) {
         return json.has(key) && !json.get(key).isJsonNull() ? json.get(key).getAsFloat() : fallback;
+    }
+
+    private static Map<String, String> stringMap(JsonObject json, String key) {
+        if (!json.has(key) || !json.get(key).isJsonObject()) {
+            return Map.of();
+        }
+        Map<String, String> values = new LinkedHashMap<>();
+        JsonObject object = json.getAsJsonObject(key);
+        for (Map.Entry<String, com.google.gson.JsonElement> entry : object.entrySet()) {
+            if (!entry.getValue().isJsonNull()) {
+                values.put(entry.getKey(), entry.getValue().getAsString());
+            }
+        }
+        return values;
+    }
+
+    private static Map<String, String> cleanAssignments(Map<String, String> assignments) {
+        if (assignments == null || assignments.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> values = new LinkedHashMap<>();
+        assignments.forEach((key, value) -> {
+            if (key != null && !key.isBlank() && value != null && !value.isBlank()) {
+                values.put(key, value);
+            }
+        });
+        return Map.copyOf(values);
     }
 
     public void save(Path gameDir) throws IOException {
@@ -131,6 +163,7 @@ public record ArmatureSkinConfig(
                 selectedTextureId,
                 selectedTexturePath,
                 "",
+                Map.of(),
                 fbxPath,
                 scale,
                 yOffset,
@@ -156,6 +189,7 @@ public record ArmatureSkinConfig(
                 texture.id(),
                 persistedPath.toString().replace('\\', '/'),
                 disabledMeshKeys,
+                meshTextureAssignments,
                 fbxPath,
                 scale,
                 yOffset,
@@ -213,6 +247,38 @@ public record ArmatureSkinConfig(
                 selectedTextureId,
                 selectedTexturePath,
                 String.join(",", keys),
+                meshTextureAssignments,
+                fbxPath,
+                scale,
+                yOffset,
+                mirrorVanillaSneak,
+                forceOpaqueSkin
+        );
+    }
+
+    public String meshTextureId(String meshKey) {
+        if (meshKey == null || meshKey.isBlank()) {
+            return "";
+        }
+        return meshTextureAssignments.getOrDefault(meshKey, "");
+    }
+
+    public ArmatureSkinConfig withMeshTexture(String meshKey, String textureId) {
+        Map<String, String> assignments = new LinkedHashMap<>(meshTextureAssignments);
+        if (meshKey == null || meshKey.isBlank() || textureId == null || textureId.isBlank()) {
+            assignments.remove(meshKey);
+        } else {
+            assignments.put(meshKey, textureId);
+        }
+        return new ArmatureSkinConfig(
+                enabled,
+                localPlayerOnly,
+                selectedSkinId,
+                selectedSkinPath,
+                selectedTextureId,
+                selectedTexturePath,
+                disabledMeshKeys,
+                assignments,
                 fbxPath,
                 scale,
                 yOffset,

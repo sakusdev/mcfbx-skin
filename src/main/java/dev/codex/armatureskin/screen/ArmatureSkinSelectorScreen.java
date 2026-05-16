@@ -96,10 +96,10 @@ public final class ArmatureSkinSelectorScreen extends Screen {
                 return true;
             }
         }
-        if (button == 0 && inTexturePanel(mouseX, mouseY)) {
+        if ((button == 0 || button == 1) && inTexturePanel(mouseX, mouseY)) {
             int index = rowAt(mouseY, textureScroll);
             if (index >= 0 && index < textures.size()) {
-                selectTexture(textures.get(index));
+                selectTexture(textures.get(index), button);
                 return true;
             }
         }
@@ -231,7 +231,7 @@ public final class ArmatureSkinSelectorScreen extends Screen {
         }
     }
 
-    private void selectTexture(ArmatureSkinSelectionApi.TextureEntry texture) {
+    private void selectTexture(ArmatureSkinSelectionApi.TextureEntry texture, int button) {
         Optional<ArmatureSkinSelectionApi.SkinEntry> selected = skins.stream()
                 .filter(skin -> skin.id().equals(selectedSkinId))
                 .findFirst();
@@ -239,16 +239,46 @@ public final class ArmatureSkinSelectorScreen extends Screen {
             return;
         }
         try {
-            api.selectTexture(selected.get(), texture);
-            if (!texture.id().startsWith("mesh:")) {
+            if (isMeshEntry(texture)) {
+                String meshKey = meshKey(texture);
+                if (button == 1) {
+                    api.toggleMesh(selected.get(), meshKey);
+                    statusMessage = Component.literal("Toggled ").append(texture.displayName());
+                } else {
+                    Optional<ArmatureSkinSelectionApi.TextureEntry> brush = selectedBrushTexture();
+                    if (brush.isPresent()) {
+                        api.assignTextureToMesh(selected.get(), meshKey, brush.get());
+                        statusMessage = Component.literal("Assigned ").append(brush.get().displayName()).append(" to ").append(texture.displayName());
+                    } else {
+                        api.toggleMesh(selected.get(), meshKey);
+                        statusMessage = Component.literal("Toggled ").append(texture.displayName());
+                    }
+                }
+            } else {
+                api.selectTexture(selected.get(), texture);
                 selectedTextureId = texture.id();
+                statusMessage = Component.empty().append(TEXTURE_LOADED).append(" ").append(texture.displayName());
             }
             textures.clear();
             textures.addAll(api.listTextures(selected.get()));
-            statusMessage = Component.empty().append(TEXTURE_LOADED).append(" ").append(texture.displayName());
         } catch (RuntimeException ex) {
             statusMessage = Component.empty().append(LOAD_FAILED).append(": ").append(ex.getMessage());
         }
+    }
+
+    private Optional<ArmatureSkinSelectionApi.TextureEntry> selectedBrushTexture() {
+        return textures.stream()
+                .filter(texture -> !isMeshEntry(texture))
+                .filter(texture -> texture.id().equals(selectedTextureId))
+                .findFirst();
+    }
+
+    private boolean isMeshEntry(ArmatureSkinSelectionApi.TextureEntry texture) {
+        return texture.id().startsWith("mesh:");
+    }
+
+    private String meshKey(ArmatureSkinSelectionApi.TextureEntry texture) {
+        return texture.id().substring("mesh:".length());
     }
 
     private void packageSelected() {
