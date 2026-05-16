@@ -52,7 +52,7 @@ public record ArmatureSkinConfig(
     }
 
     public static ArmatureSkinConfig defaults() {
-        return new ArmatureSkinConfig(true, true, "", "", "", "", "", 0.01F, 0.0F, true, true);
+        return new ArmatureSkinConfig(true, true, "", "", "", "", "", 1.0F, 0.0F, true, true);
     }
 
     public static ArmatureSkinConfig loadOrCreate(Path gameDir) {

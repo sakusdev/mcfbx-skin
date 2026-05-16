@@ -10,10 +10,11 @@ public record ArmatureSkin(
         String displayName,
         Path path,
         boolean asciiFbx,
+        boolean packageSkin,
         List<ArmatureSkinTexture> availableTextures
 ) {
     public ArmatureSkin(String id, String displayName, Path path) {
-        this(id, displayName, path, true, List.of());
+        this(id, displayName, path, true, false, List.of());
     }
 
     public ArmatureSkin {

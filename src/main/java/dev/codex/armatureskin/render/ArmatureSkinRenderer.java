@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Map;
 
 public final class ArmatureSkinRenderer {
+    private static final float TARGET_MODEL_HEIGHT = 1.8F;
+
     private ArmatureModel model;
     private ArmatureSkinConfig config = ArmatureSkinConfig.defaults();
     private ResourceLocation texture;
@@ -50,10 +52,18 @@ public final class ArmatureSkinRenderer {
 
         matrices.pushPose();
         try {
-            matrices.scale(config.scale(), config.scale(), config.scale());
             matrices.translate(0.0F, config.yOffset(), 0.0F);
+            Bounds bounds = Bounds.of(current);
+            if (!bounds.valid()) {
+                return false;
+            }
+            float autoScale = TARGET_MODEL_HEIGHT / Math.max(0.001F, bounds.height());
+            float userScale = config.scale() <= 0.05F ? 1.0F : config.scale();
+            float renderScale = autoScale * userScale;
+            matrices.scale(renderScale, renderScale, renderScale);
+            matrices.translate(-bounds.centerX(), -bounds.minY(), -bounds.centerZ());
             if (player.isCrouching() && config.mirrorVanillaSneak()) {
-                matrices.translate(0.0F, -12.0F, 0.0F);
+                matrices.translate(0.0F, -0.25F / renderScale, 0.0F);
             }
 
             Matrix4f[] skinMatrices = buildSkinMatrices(current, player, tickDelta);
@@ -167,5 +177,45 @@ public final class ArmatureSkinRenderer {
             return "";
         }
         return materialName.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9._-]+", "_");
+    }
+
+    private record Bounds(float minX, float minY, float minZ, float maxX, float maxY, float maxZ) {
+        static Bounds of(ArmatureModel model) {
+            float minX = Float.POSITIVE_INFINITY;
+            float minY = Float.POSITIVE_INFINITY;
+            float minZ = Float.POSITIVE_INFINITY;
+            float maxX = Float.NEGATIVE_INFINITY;
+            float maxY = Float.NEGATIVE_INFINITY;
+            float maxZ = Float.NEGATIVE_INFINITY;
+            for (ArmatureModel.Mesh mesh : model.meshes()) {
+                for (ArmatureModel.Vertex vertex : mesh.vertices()) {
+                    minX = Math.min(minX, vertex.x());
+                    minY = Math.min(minY, vertex.y());
+                    minZ = Math.min(minZ, vertex.z());
+                    maxX = Math.max(maxX, vertex.x());
+                    maxY = Math.max(maxY, vertex.y());
+                    maxZ = Math.max(maxZ, vertex.z());
+                }
+            }
+            return new Bounds(minX, minY, minZ, maxX, maxY, maxZ);
+        }
+
+        boolean valid() {
+            return Float.isFinite(minX) && Float.isFinite(minY) && Float.isFinite(minZ)
+                    && Float.isFinite(maxX) && Float.isFinite(maxY) && Float.isFinite(maxZ)
+                    && height() > 0.0F;
+        }
+
+        float height() {
+            return maxY - minY;
+        }
+
+        float centerX() {
+            return (minX + maxX) * 0.5F;
+        }
+
+        float centerZ() {
+            return (minZ + maxZ) * 0.5F;
+        }
     }
 }

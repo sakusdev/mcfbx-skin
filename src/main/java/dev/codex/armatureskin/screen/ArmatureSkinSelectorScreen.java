@@ -21,11 +21,13 @@ public final class ArmatureSkinSelectorScreen extends Screen {
     private static final Component SELECTED = Component.translatable("screen.armature_fbx_skin.selector.selected");
     private static final Component RELOAD = Component.translatable("screen.armature_fbx_skin.selector.reload");
     private static final Component OPEN_FOLDER = Component.translatable("screen.armature_fbx_skin.selector.open_folder");
+    private static final Component PACKAGE = Component.translatable("screen.armature_fbx_skin.selector.package");
     private static final Component BACK = Component.translatable("gui.back");
     private static final Component LOADED = Component.translatable("screen.armature_fbx_skin.selector.loaded");
     private static final Component TEXTURE_LOADED = Component.translatable("screen.armature_fbx_skin.selector.texture_loaded");
     private static final Component RELOADED = Component.translatable("screen.armature_fbx_skin.selector.reloaded");
     private static final Component LOAD_FAILED = Component.translatable("screen.armature_fbx_skin.selector.load_failed");
+    private static final Component PACKAGED = Component.translatable("screen.armature_fbx_skin.selector.packaged");
 
     private static final int TOP = 50;
     private static final int ROW_HEIGHT = 34;
@@ -53,20 +55,23 @@ public final class ArmatureSkinSelectorScreen extends Screen {
     @Override
     protected void init() {
         addRenderableWidget(Button.builder(RELOAD, button -> reloadAll())
-                .bounds(width / 2 - 154, height - 28, 98, 20)
+                .bounds(width / 2 - 206, height - 28, 96, 20)
                 .build());
         addRenderableWidget(Button.builder(OPEN_FOLDER, button -> openFolder())
-                .bounds(width / 2 - 49, height - 28, 98, 20)
+                .bounds(width / 2 - 104, height - 28, 96, 20)
+                .build());
+        addRenderableWidget(Button.builder(PACKAGE, button -> packageSelected())
+                .bounds(width / 2 - 2, height - 28, 96, 20)
                 .build());
         addRenderableWidget(Button.builder(BACK, button -> onClose())
-                .bounds(width / 2 + 56, height - 28, 98, 20)
+                .bounds(width / 2 + 100, height - 28, 96, 20)
                 .build());
         refresh(false);
     }
 
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(guiGraphics, mouseX, mouseY, partialTick);
+        guiGraphics.fill(0, 0, width, height, 0xD0101010);
         guiGraphics.drawCenteredString(font, title, width / 2, 16, 0xFFFFFF);
         guiGraphics.drawString(font, SKINS, leftX(), TOP - 16, 0xD8D8D8);
         guiGraphics.drawString(font, TEXTURES, rightX(), TOP - 16, 0xD8D8D8);
@@ -233,6 +238,22 @@ public final class ArmatureSkinSelectorScreen extends Screen {
             api.selectTexture(selected.get(), texture);
             selectedTextureId = texture.id();
             statusMessage = Component.empty().append(TEXTURE_LOADED).append(" ").append(texture.displayName());
+        } catch (RuntimeException ex) {
+            statusMessage = Component.empty().append(LOAD_FAILED).append(": ").append(ex.getMessage());
+        }
+    }
+
+    private void packageSelected() {
+        Optional<ArmatureSkinSelectionApi.SkinEntry> selected = skins.stream()
+                .filter(skin -> skin.id().equals(selectedSkinId))
+                .findFirst();
+        if (selected.isEmpty()) {
+            return;
+        }
+        try {
+            Path output = api.packageSelectedSkin(selected.get());
+            refresh(false);
+            statusMessage = Component.empty().append(PACKAGED).append(" ").append(output.getFileName().toString());
         } catch (RuntimeException ex) {
             statusMessage = Component.empty().append(LOAD_FAILED).append(": ").append(ex.getMessage());
         }

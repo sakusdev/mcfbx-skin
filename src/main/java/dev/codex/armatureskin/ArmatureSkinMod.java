@@ -4,6 +4,8 @@ import com.mojang.blaze3d.platform.NativeImage;
 import dev.codex.armatureskin.config.ArmatureSkinConfig;
 import dev.codex.armatureskin.fbx.FbxLoader;
 import dev.codex.armatureskin.model.ArmatureModel;
+import dev.codex.armatureskin.packageformat.Mc3dSkinContent;
+import dev.codex.armatureskin.packageformat.Mc3dSkinPackage;
 import dev.codex.armatureskin.render.ArmatureSkinRenderer;
 import dev.codex.armatureskin.screen.ArmatureSkinSelectionApi;
 import dev.codex.armatureskin.screen.ArmatureSkinSelectorScreen;
@@ -124,9 +126,21 @@ public final class ArmatureSkinMod {
         }
 
         try {
-            ArmatureModel model = new FbxLoader().load(fbxPath);
-            ResourceLocation texture = loadSelectedTexture(client);
-            Map<String, ResourceLocation> materialTextures = loadMaterialTextures(client, model);
+            releaseLoadedTexture(client);
+            ArmatureSkin selectedSkin = skinManager.resolveSelectedSkin().orElse(null);
+            ArmatureModel model;
+            ResourceLocation texture;
+            Map<String, ResourceLocation> materialTextures;
+            if (selectedSkin != null && selectedSkin.packageSkin()) {
+                Mc3dSkinContent content = Mc3dSkinPackage.read(fbxPath);
+                model = new FbxLoader().load(content.modelBytes(), content.manifest().model());
+                texture = loadPackagedTexture(client, content);
+                materialTextures = loadPackagedMaterialTextures(client, model, content);
+            } else {
+                model = new FbxLoader().load(fbxPath);
+                texture = loadSelectedTexture(client);
+                materialTextures = loadMaterialTextures(client, model);
+            }
             RENDERER.setModel(model, config, texture, materialTextures);
             LOGGER.info("Loaded armature FBX skin from {} with texture {} and {} material texture(s)", fbxPath, texture == null ? "player skin" : texture, materialTextures.size());
             if (announce && client.player != null) {
@@ -238,6 +252,23 @@ public final class ArmatureSkinMod {
                         : skin.path().getParent();
                 Util.getPlatform().openFile(folder.toFile());
             }
+
+            @Override
+            public Path packageSelectedSkin(SkinEntry skin) {
+                refreshSkins(client);
+                ArmatureSkin selected = skinManager.findById(skin.id())
+                        .orElseThrow(() -> new IllegalStateException("Selected FBX skin is no longer available."));
+                ArmatureSkinTexture preferred = skinManager.resolveSelectedTexture(selected).orElse(null);
+                try {
+                    Path output = Mc3dSkinPackage.writePlain(client.gameDirectory.toPath(), selected, selected.availableTextures(), preferred);
+                    config = config.withSelectedSkin(new ArmatureSkin(stripSkinExtension(output.getFileName().toString()), stripSkinExtension(output.getFileName().toString()), output), client.gameDirectory.toPath());
+                    config.save(client.gameDirectory.toPath());
+                    reloadModel(client, true);
+                    return output;
+                } catch (IOException ex) {
+                    throw new IllegalStateException("Failed to package mc3dskin", ex);
+                }
+            }
         };
     }
 
@@ -250,7 +281,6 @@ public final class ArmatureSkinMod {
     }
 
     private static ResourceLocation loadSelectedTexture(Minecraft client) throws IOException {
-        releaseLoadedTexture(client);
         if (client.getTextureManager() == null) {
             return null;
         }
@@ -272,6 +302,18 @@ public final class ArmatureSkinMod {
                 image.close();
             }
         }
+    }
+
+    private static ResourceLocation loadPackagedTexture(Minecraft client, Mc3dSkinContent content) throws IOException {
+        if (client.getTextureManager() == null) {
+            return null;
+        }
+        Mc3dSkinContent.Texture texture = content.preferredTexture().orElse(null);
+        if (texture == null) {
+            return null;
+        }
+        loadedTexture = loadTexture(client, texture.bytes(), "dynamic/armature_skin");
+        return loadedTexture;
     }
 
     private static Map<String, ResourceLocation> loadMaterialTextures(Minecraft client, ArmatureModel model) throws IOException {
@@ -301,9 +343,40 @@ public final class ArmatureSkinMod {
         return textures;
     }
 
+    private static Map<String, ResourceLocation> loadPackagedMaterialTextures(Minecraft client, ArmatureModel model, Mc3dSkinContent content) throws IOException {
+        if (client.getTextureManager() == null) {
+            return Map.of();
+        }
+        Map<String, Mc3dSkinContent.Texture> textureByBaseName = new HashMap<>();
+        for (Mc3dSkinContent.Texture texture : content.textures()) {
+            textureByBaseName.put(normalizeName(baseName(Path.of(texture.path()).getFileName().toString())), texture);
+        }
+
+        Map<String, ResourceLocation> textures = new HashMap<>();
+        int index = 0;
+        for (ArmatureModel.Mesh mesh : model.meshes()) {
+            String materialKey = ArmatureSkinRenderer.normalizeMaterialName(mesh.materialName());
+            if (materialKey.isBlank() || textures.containsKey(materialKey)) {
+                continue;
+            }
+            Mc3dSkinContent.Texture matchingTexture = textureByBaseName.get(normalizeName(mesh.materialName()));
+            if (matchingTexture == null) {
+                continue;
+            }
+            ResourceLocation location = loadTexture(client, matchingTexture.bytes(), "dynamic/material_" + index++);
+            loadedMaterialTextures.put(materialKey, location);
+            textures.put(materialKey, location);
+        }
+        return textures;
+    }
+
     private static ResourceLocation loadTexture(Minecraft client, Path path, String id) throws IOException {
+        return loadTexture(client, Files.readAllBytes(path), id);
+    }
+
+    private static ResourceLocation loadTexture(Minecraft client, byte[] bytes, String id) throws IOException {
         NativeImage image = null;
-        try (InputStream input = Files.newInputStream(path)) {
+        try (InputStream input = new java.io.ByteArrayInputStream(bytes)) {
             image = NativeImage.read(input);
             DynamicTexture dynamicTexture = new DynamicTexture(image);
             image = null;
@@ -340,5 +413,16 @@ public final class ArmatureSkinMod {
 
     private static String normalizeName(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]+", "_");
+    }
+
+    private static String stripSkinExtension(String value) {
+        String lower = value.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".mc3dskin")) {
+            return value.substring(0, value.length() - ".mc3dskin".length());
+        }
+        if (lower.endsWith(".fbx")) {
+            return value.substring(0, value.length() - ".fbx".length());
+        }
+        return value;
     }
 }

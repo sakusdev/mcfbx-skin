@@ -38,6 +38,10 @@ public interface ArmatureSkinSelectionApi {
         openSkinsFolder();
     }
 
+    default Path packageSelectedSkin(SkinEntry skin) {
+        throw new UnsupportedOperationException("Packaging is not available.");
+    }
+
     record SkinEntry(String id, Component displayName, Path path) {
     }
 

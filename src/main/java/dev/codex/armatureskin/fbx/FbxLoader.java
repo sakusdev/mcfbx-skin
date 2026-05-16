@@ -5,6 +5,7 @@ import dev.codex.armatureskin.model.ArmatureModel;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 
 public final class FbxLoader {
     private static final byte[] BINARY_MAGIC = new byte[]{
@@ -13,10 +14,15 @@ public final class FbxLoader {
 
     public ArmatureModel load(Path path) throws IOException {
         byte[] prefix = Files.readAllBytes(path);
+        return load(prefix, path.getFileName().toString());
+    }
+
+    public ArmatureModel load(byte[] data, String sourceName) throws IOException {
+        byte[] prefix = data;
         if (isBinary(prefix)) {
             return new BinaryFbxLoader().load(prefix);
         }
-        return new AsciiFbxLoader().load(path);
+        return new AsciiFbxLoader().loadText(new String(data, StandardCharsets.UTF_8), sourceName);
     }
 
     private static boolean isBinary(byte[] data) {
