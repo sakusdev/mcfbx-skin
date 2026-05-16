@@ -388,7 +388,7 @@ public final class BinaryFbxLoader {
         }
 
         return indicesByMaterial.entrySet().stream()
-                .map(entry -> new ArmatureModel.Mesh(entry.getKey(), outVertices, entry.getValue().stream().mapToInt(Integer::intValue).toArray()))
+                .map(entry -> new ArmatureModel.Mesh("geometry:" + geometry.id + "|material:" + normalizeKey(entry.getKey()), geometry.name, entry.getKey(), outVertices, entry.getValue().stream().mapToInt(Integer::intValue).toArray()))
                 .filter(mesh -> !mesh.vertices().isEmpty() && mesh.indices().length > 0)
                 .toList();
     }
@@ -552,6 +552,10 @@ public final class BinaryFbxLoader {
             return materialNames.get(materialIndex);
         }
         return materialNames.isEmpty() ? "" : materialNames.get(0);
+    }
+
+    private static String normalizeKey(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]+", "_");
     }
 
     private static int nullRecordSize(boolean wideNodes) {

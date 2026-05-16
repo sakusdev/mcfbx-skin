@@ -7,6 +7,7 @@
   "screen.armature_fbx_skin.selector.texture_title": "UV Textures",
   "screen.armature_fbx_skin.selector.skins": "FBX Files",
   "screen.armature_fbx_skin.selector.textures": "UV Textures to Apply",
+  "screen.armature_fbx_skin.selector.textures_and_parts": "UV Textures / Model Parts",
   "screen.armature_fbx_skin.selector.empty": "No FBX skins found",
   "screen.armature_fbx_skin.selector.texture_empty": "No textures found for this FBX",
   "screen.armature_fbx_skin.selector.empty_textures": "No UV textures found",

@@ -48,7 +48,9 @@ public final class ArmatureSkinMod {
     private static ArmatureSkinConfig config = ArmatureSkinConfig.defaults();
     private static ArmatureSkinManager skinManager;
     private static ResourceLocation loadedTexture;
+    private static ArmatureModel loadedModel;
     private static final Map<String, ResourceLocation> loadedMaterialTextures = new HashMap<>();
+    private static final String MESH_ENTRY_PREFIX = "mesh:";
     private boolean initialReloadDone;
 
     private final KeyMapping reloadKey = new KeyMapping(
@@ -110,6 +112,7 @@ public final class ArmatureSkinMod {
         config = ArmatureSkinConfig.loadOrCreate(client.gameDirectory.toPath());
         skinManager = ArmatureSkinManager.discover(client.gameDirectory.toPath(), config);
         RENDERER.clear();
+        loadedModel = null;
 
         if (!config.enabled()) {
             LOGGER.info("Armature FBX skin is disabled.");
@@ -141,6 +144,7 @@ public final class ArmatureSkinMod {
                 texture = loadSelectedTexture(client);
                 materialTextures = loadMaterialTextures(client, model);
             }
+            loadedModel = model;
             RENDERER.setModel(model, config, texture, materialTextures);
             LOGGER.info("Loaded armature FBX skin from {} with texture {} and {} material texture(s)", fbxPath, texture == null ? "player skin" : texture, materialTextures.size());
             if (announce && client.player != null) {
@@ -214,9 +218,18 @@ public final class ArmatureSkinMod {
                 refreshSkins(client);
                 ArmatureSkin selected = skinManager.findById(skin.id())
                         .orElseGet(() -> new ArmatureSkin(skin.id(), skin.displayName().getString(), skin.path()));
-                return skinManager.availableTextures().stream()
+                List<TextureEntry> textureEntries = new java.util.ArrayList<>(skinManager.availableTextures().stream()
                         .map(ArmatureSkinMod::toTextureEntry)
-                        .toList();
+                        .toList());
+                ArmatureModel model = loadedModel;
+                if (model != null && selected.id().equals(config.selectedSkinId())) {
+                    for (ArmatureModel.Mesh mesh : model.meshes()) {
+                        boolean hidden = config.isMeshDisabled(mesh.key());
+                        Component label = Component.literal((hidden ? "[OFF] " : "[ON] ") + "Part: " + mesh.displayName());
+                        textureEntries.add(new TextureEntry(MESH_ENTRY_PREFIX + mesh.key(), label, null));
+                    }
+                }
+                return textureEntries;
             }
 
             @Override
@@ -229,6 +242,16 @@ public final class ArmatureSkinMod {
 
             @Override
             public void selectTexture(SkinEntry skin, TextureEntry texture) {
+                if (texture.id().startsWith(MESH_ENTRY_PREFIX)) {
+                    config = config.withToggledMesh(texture.id().substring(MESH_ENTRY_PREFIX.length()));
+                    try {
+                        config.save(client.gameDirectory.toPath());
+                    } catch (IOException ex) {
+                        throw new IllegalStateException("Failed to save mesh visibility", ex);
+                    }
+                    reloadModel(client, true);
+                    return;
+                }
                 ArmatureSkinTexture selected = skinManager.findTextureById(texture.id())
                         .orElseGet(() -> new ArmatureSkinTexture(texture.id(), texture.displayName().getString(), texture.path()));
                 config = config.withSelectedTexture(selected, client.gameDirectory.toPath());

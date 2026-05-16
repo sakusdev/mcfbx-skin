@@ -13,6 +13,9 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public record ArmatureSkinConfig(
         boolean enabled,
@@ -21,6 +24,7 @@ public record ArmatureSkinConfig(
         String selectedSkinPath,
         String selectedTextureId,
         String selectedTexturePath,
+        String disabledMeshKeys,
         String fbxPath,
         float scale,
         float yOffset,
@@ -40,7 +44,7 @@ public record ArmatureSkinConfig(
             boolean mirrorVanillaSneak,
             boolean forceOpaqueSkin
     ) {
-        this(enabled, localPlayerOnly, selectedSkinId, selectedSkinPath, "", "", fbxPath, scale, yOffset, mirrorVanillaSneak, forceOpaqueSkin);
+        this(enabled, localPlayerOnly, selectedSkinId, selectedSkinPath, "", "", "", fbxPath, scale, yOffset, mirrorVanillaSneak, forceOpaqueSkin);
     }
 
     public ArmatureSkinConfig {
@@ -48,11 +52,12 @@ public record ArmatureSkinConfig(
         selectedSkinPath = selectedSkinPath == null ? "" : selectedSkinPath;
         selectedTextureId = selectedTextureId == null ? "" : selectedTextureId;
         selectedTexturePath = selectedTexturePath == null ? "" : selectedTexturePath;
+        disabledMeshKeys = disabledMeshKeys == null ? "" : disabledMeshKeys;
         fbxPath = fbxPath == null ? "" : fbxPath;
     }
 
     public static ArmatureSkinConfig defaults() {
-        return new ArmatureSkinConfig(true, true, "", "", "", "", "", 1.0F, 0.0F, true, true);
+        return new ArmatureSkinConfig(true, true, "", "", "", "", "", "", 1.0F, 0.0F, true, true);
     }
 
     public static ArmatureSkinConfig loadOrCreate(Path gameDir) {
@@ -76,6 +81,7 @@ public record ArmatureSkinConfig(
                         string(json, "selectedSkinPath", defaults.selectedSkinPath),
                         string(json, "selectedTextureId", defaults.selectedTextureId),
                         string(json, "selectedTexturePath", defaults.selectedTexturePath),
+                        string(json, "disabledMeshKeys", defaults.disabledMeshKeys),
                         string(json, "fbxPath", defaults.fbxPath),
                         number(json, "scale", defaults.scale),
                         number(json, "yOffset", defaults.yOffset),
@@ -124,6 +130,7 @@ public record ArmatureSkinConfig(
                 persistedPath.toString().replace('\\', '/'),
                 selectedTextureId,
                 selectedTexturePath,
+                "",
                 fbxPath,
                 scale,
                 yOffset,
@@ -148,6 +155,7 @@ public record ArmatureSkinConfig(
                 selectedSkinPath,
                 texture.id(),
                 persistedPath.toString().replace('\\', '/'),
+                disabledMeshKeys,
                 fbxPath,
                 scale,
                 yOffset,
@@ -176,5 +184,40 @@ public record ArmatureSkinConfig(
         }
         Path path = Path.of(configuredPath);
         return path.isAbsolute() ? path.normalize() : gameDir.resolve(path).normalize();
+    }
+
+    public Set<String> disabledMeshKeySet() {
+        if (disabledMeshKeys.isBlank()) {
+            return Set.of();
+        }
+        return Arrays.stream(disabledMeshKeys.split(","))
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    public boolean isMeshDisabled(String key) {
+        return disabledMeshKeySet().contains(key);
+    }
+
+    public ArmatureSkinConfig withToggledMesh(String key) {
+        Set<String> keys = new java.util.LinkedHashSet<>(disabledMeshKeySet());
+        if (!keys.add(key)) {
+            keys.remove(key);
+        }
+        return new ArmatureSkinConfig(
+                enabled,
+                localPlayerOnly,
+                selectedSkinId,
+                selectedSkinPath,
+                selectedTextureId,
+                selectedTexturePath,
+                String.join(",", keys),
+                fbxPath,
+                scale,
+                yOffset,
+                mirrorVanillaSneak,
+                forceOpaqueSkin
+        );
     }
 }

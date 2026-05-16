@@ -7,6 +7,7 @@
   "screen.armature_fbx_skin.selector.texture_title": "UV テクスチャ",
   "screen.armature_fbx_skin.selector.skins": "FBX ファイル",
   "screen.armature_fbx_skin.selector.textures": "貼り付ける UV テクスチャ",
+  "screen.armature_fbx_skin.selector.textures_and_parts": "UV テクスチャ / モデルパーツ",
   "screen.armature_fbx_skin.selector.empty": "FBX スキンが見つかりません",
   "screen.armature_fbx_skin.selector.texture_empty": "この FBX のテクスチャが見つかりません",
   "screen.armature_fbx_skin.selector.empty_textures": "UV テクスチャが見つかりません",

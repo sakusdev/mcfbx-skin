@@ -15,7 +15,7 @@ import java.util.Optional;
 public final class ArmatureSkinSelectorScreen extends Screen {
     private static final Component TITLE = Component.translatable("screen.armature_fbx_skin.selector.title");
     private static final Component SKINS = Component.translatable("screen.armature_fbx_skin.selector.skins");
-    private static final Component TEXTURES = Component.translatable("screen.armature_fbx_skin.selector.textures");
+    private static final Component TEXTURES = Component.translatable("screen.armature_fbx_skin.selector.textures_and_parts");
     private static final Component EMPTY_SKINS = Component.translatable("screen.armature_fbx_skin.selector.empty");
     private static final Component EMPTY_TEXTURES = Component.translatable("screen.armature_fbx_skin.selector.empty_textures");
     private static final Component SELECTED = Component.translatable("screen.armature_fbx_skin.selector.selected");
@@ -81,6 +81,10 @@ public final class ArmatureSkinSelectorScreen extends Screen {
             guiGraphics.drawCenteredString(font, trim(statusMessage, width - SIDE_MARGIN * 2), width / 2, height - 45, 0xA0FFA0);
         }
         super.render(guiGraphics, mouseX, mouseY, partialTick);
+    }
+
+    @Override
+    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
     }
 
     @Override
@@ -236,7 +240,11 @@ public final class ArmatureSkinSelectorScreen extends Screen {
         }
         try {
             api.selectTexture(selected.get(), texture);
-            selectedTextureId = texture.id();
+            if (!texture.id().startsWith("mesh:")) {
+                selectedTextureId = texture.id();
+            }
+            textures.clear();
+            textures.addAll(api.listTextures(selected.get()));
             statusMessage = Component.empty().append(TEXTURE_LOADED).append(" ").append(texture.displayName());
         } catch (RuntimeException ex) {
             statusMessage = Component.empty().append(LOAD_FAILED).append(": ").append(ex.getMessage());

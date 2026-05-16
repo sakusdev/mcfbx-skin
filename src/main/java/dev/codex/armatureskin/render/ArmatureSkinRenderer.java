@@ -53,7 +53,7 @@ public final class ArmatureSkinRenderer {
         matrices.pushPose();
         try {
             matrices.translate(0.0F, config.yOffset(), 0.0F);
-            Bounds bounds = Bounds.of(current);
+            Bounds bounds = Bounds.of(current, config);
             if (!bounds.valid()) {
                 return false;
             }
@@ -70,6 +70,9 @@ public final class ArmatureSkinRenderer {
             PoseStack.Pose entry = matrices.last();
 
             for (ArmatureModel.Mesh mesh : current.meshes()) {
+                if (config.isMeshDisabled(mesh.key())) {
+                    continue;
+                }
                 ResourceLocation renderTexture = textureForMesh(mesh, player);
                 RenderType renderType = config.forceOpaqueSkin()
                         ? RenderType.entitySolid(renderTexture)
@@ -180,7 +183,7 @@ public final class ArmatureSkinRenderer {
     }
 
     private record Bounds(float minX, float minY, float minZ, float maxX, float maxY, float maxZ) {
-        static Bounds of(ArmatureModel model) {
+        static Bounds of(ArmatureModel model, ArmatureSkinConfig config) {
             float minX = Float.POSITIVE_INFINITY;
             float minY = Float.POSITIVE_INFINITY;
             float minZ = Float.POSITIVE_INFINITY;
@@ -188,6 +191,9 @@ public final class ArmatureSkinRenderer {
             float maxY = Float.NEGATIVE_INFINITY;
             float maxZ = Float.NEGATIVE_INFINITY;
             for (ArmatureModel.Mesh mesh : model.meshes()) {
+                if (config.isMeshDisabled(mesh.key())) {
+                    continue;
+                }
                 for (ArmatureModel.Vertex vertex : mesh.vertices()) {
                     minX = Math.min(minX, vertex.x());
                     minY = Math.min(minY, vertex.y());
