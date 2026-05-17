@@ -2,6 +2,7 @@ package dev.codex.armatureskin.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
 import dev.codex.armatureskin.config.ArmatureSkinConfig;
 import dev.codex.armatureskin.model.ArmatureModel;
 import net.minecraft.client.Minecraft;
@@ -59,6 +60,7 @@ public final class ArmatureSkinRenderer {
 
         matrices.pushPose();
         try {
+            matrices.mulPose(Axis.YP.rotationDegrees(180.0F - yaw));
             matrices.translate(0.0F, config.yOffset(), 0.0F);
             Bounds bounds = Bounds.of(current, config);
             if (!bounds.valid()) {
@@ -81,7 +83,7 @@ public final class ArmatureSkinRenderer {
                     continue;
                 }
                 ResourceLocation renderTexture = textureForMesh(mesh, player);
-                RenderType renderType = RenderType.entityCutout(renderTexture);
+                RenderType renderType = RenderType.entityTranslucent(renderTexture);
                 VertexConsumer consumer = buffers.getBuffer(renderType);
                 int[] indices = mesh.indices();
                 List<ArmatureModel.Vertex> meshVertices = mesh.vertices();

@@ -18,6 +18,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
@@ -104,9 +105,11 @@ public final class ArmatureSkinMod {
     }
 
     private void onRenderPlayer(RenderPlayerEvent.Pre event) {
-        if (event.getEntity() instanceof net.minecraft.client.player.AbstractClientPlayer player
-                && RENDERER.renderPlayer(player, 0.0F, event.getPartialTick(), event.getPoseStack(), event.getMultiBufferSource(), event.getPackedLight())) {
-            event.setCanceled(true);
+        if (event.getEntity() instanceof net.minecraft.client.player.AbstractClientPlayer player) {
+            float bodyYaw = Mth.rotLerp(event.getPartialTick(), player.yBodyRotO, player.yBodyRot);
+            if (RENDERER.renderPlayer(player, bodyYaw, event.getPartialTick(), event.getPoseStack(), event.getMultiBufferSource(), event.getPackedLight())) {
+                event.setCanceled(true);
+            }
         }
     }
 
@@ -377,7 +380,8 @@ public final class ArmatureSkinMod {
             if (materialKey.isBlank() || textures.containsKey(materialKey)) {
                 continue;
             }
-            ArmatureSkinTexture matchingTexture = textureByBaseName.get(normalizeName(mesh.materialName()));
+            String textureKey = bestTextureKey(mesh.materialName(), textureByBaseName.keySet());
+            ArmatureSkinTexture matchingTexture = textureKey == null ? null : textureByBaseName.get(textureKey);
             if (matchingTexture == null || matchingTexture.path() == null || !Files.isRegularFile(matchingTexture.path())) {
                 continue;
             }
@@ -427,7 +431,8 @@ public final class ArmatureSkinMod {
             if (materialKey.isBlank() || textures.containsKey(materialKey)) {
                 continue;
             }
-            Mc3dSkinContent.Texture matchingTexture = textureByBaseName.get(normalizeName(mesh.materialName()));
+            String textureKey = bestTextureKey(mesh.materialName(), textureByBaseName.keySet());
+            Mc3dSkinContent.Texture matchingTexture = textureKey == null ? null : textureByBaseName.get(textureKey);
             if (matchingTexture == null) {
                 continue;
             }
@@ -474,6 +479,7 @@ public final class ArmatureSkinMod {
         try (InputStream input = new java.io.ByteArrayInputStream(bytes)) {
             image = NativeImage.read(input);
             DynamicTexture dynamicTexture = new DynamicTexture(image);
+            dynamicTexture.setFilter(true, false);
             image = null;
             ResourceLocation location = ResourceLocation.fromNamespaceAndPath(MOD_ID, id);
             client.getTextureManager().register(location, dynamicTexture);
@@ -544,6 +550,33 @@ public final class ArmatureSkinMod {
 
     private static String normalizeName(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]+", "_");
+    }
+
+    private static String compactName(String value) {
+        return normalizeName(value).replaceAll("[^a-z0-9]+", "");
+    }
+
+    private static String bestTextureKey(String materialName, java.util.Set<String> textureKeys) {
+        String materialKey = normalizeName(materialName);
+        if (materialKey.isBlank()) {
+            return null;
+        }
+        if (textureKeys.contains(materialKey)) {
+            return materialKey;
+        }
+
+        String compactMaterial = compactName(materialKey);
+        return textureKeys.stream()
+                .filter(key -> {
+                    String compactTexture = compactName(key);
+                    return key.endsWith("_" + materialKey)
+                            || key.endsWith("-" + materialKey)
+                            || key.endsWith("." + materialKey)
+                            || compactTexture.endsWith(compactMaterial)
+                            || compactTexture.contains(compactMaterial);
+                })
+                .min(java.util.Comparator.comparingInt(String::length))
+                .orElse(null);
     }
 
     private static String stripSkinExtension(String value) {
