@@ -18,9 +18,21 @@ public final class FbxLoader {
     }
 
     public ArmatureModel load(byte[] data, String sourceName) throws IOException {
-        byte[] prefix = data;
-        if (isBinary(prefix)) {
-            return new BinaryFbxLoader().load(prefix);
+        try {
+            return new AssimpFbxLoader().load(data, sourceName);
+        } catch (IOException | RuntimeException | LinkageError assimpFailure) {
+            try {
+                return loadWithBuiltInParser(data, sourceName);
+            } catch (IOException fallbackFailure) {
+                fallbackFailure.addSuppressed(assimpFailure);
+                throw fallbackFailure;
+            }
+        }
+    }
+
+    private ArmatureModel loadWithBuiltInParser(byte[] data, String sourceName) throws IOException {
+        if (isBinary(data)) {
+            return new BinaryFbxLoader().load(data);
         }
         return new AsciiFbxLoader().loadText(new String(data, StandardCharsets.UTF_8), sourceName);
     }

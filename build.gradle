@@ -12,10 +12,30 @@ base {
 }
 
 repositories {
+    mavenCentral()
+}
+
+configurations {
+    embedAssimp
+    embedAssimp.transitive = false
 }
 
 dependencies {
     implementation "net.neoforged:neoforge:${neo_version}"
+
+    implementation "org.lwjgl:lwjgl-assimp:${lwjgl_version}"
+    runtimeOnly "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-windows"
+    runtimeOnly "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-windows-arm64"
+    runtimeOnly "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-linux"
+    runtimeOnly "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-macos"
+    runtimeOnly "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-macos-arm64"
+
+    embedAssimp "org.lwjgl:lwjgl-assimp:${lwjgl_version}"
+    embedAssimp "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-windows"
+    embedAssimp "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-windows-arm64"
+    embedAssimp "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-linux"
+    embedAssimp "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-macos"
+    embedAssimp "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-macos-arm64"
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -58,4 +78,11 @@ tasks.withType(ProcessResources).configureEach {
 
 java {
     withSourcesJar()
+}
+
+tasks.named("jar", Jar).configure {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from {
+        configurations.embedAssimp.collect { zipTree(it) }
+    }
 }
