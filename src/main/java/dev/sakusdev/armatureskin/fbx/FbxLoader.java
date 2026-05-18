@@ -1,6 +1,6 @@
-package dev.codex.armatureskin.fbx;
+package dev.sakusdev.armatureskin.fbx;
 
-import dev.codex.armatureskin.model.ArmatureModel;
+import dev.sakusdev.armatureskin.model.ArmatureModel;
 
 import java.io.IOException;
 import java.nio.file.Files;

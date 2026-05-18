@@ -1,6 +1,6 @@
-package dev.codex.armatureskin.render;
+package dev.sakusdev.armatureskin.render;
 
-import dev.codex.armatureskin.model.ArmatureModel;
+import dev.sakusdev.armatureskin.model.ArmatureModel;
 import org.joml.Matrix4f;
 
 import java.util.Locale;

@@ -1,4 +1,4 @@
-package dev.codex.armatureskin.render;
+package dev.sakusdev.armatureskin.render;
 
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.resources.ResourceLocation;

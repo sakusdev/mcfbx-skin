@@ -1,18 +1,16 @@
-package dev.codex.armatureskin;
+package dev.sakusdev.armatureskin;
 
 import com.mojang.blaze3d.platform.NativeImage;
-import dev.codex.armatureskin.config.ArmatureSkinConfig;
-import dev.codex.armatureskin.fbx.FbxLoader;
-import dev.codex.armatureskin.model.ArmatureModel;
-import dev.codex.armatureskin.packageformat.Mc3dSkinContent;
-import dev.codex.armatureskin.packageformat.Mc3dSkinPackage;
-import dev.codex.armatureskin.render.ArmatureSkinRenderer;
-import dev.codex.armatureskin.render.SkinRenderTexture;
-import dev.codex.armatureskin.screen.ArmatureSkinSelectionApi;
-import dev.codex.armatureskin.screen.ArmatureSkinSelectorScreen;
-import dev.codex.armatureskin.skin.ArmatureSkin;
-import dev.codex.armatureskin.skin.ArmatureSkinManager;
-import dev.codex.armatureskin.skin.ArmatureSkinTexture;
+import dev.sakusdev.armatureskin.config.ArmatureSkinConfig;
+import dev.sakusdev.armatureskin.fbx.FbxLoader;
+import dev.sakusdev.armatureskin.model.ArmatureModel;
+import dev.sakusdev.armatureskin.render.ArmatureSkinRenderer;
+import dev.sakusdev.armatureskin.render.SkinRenderTexture;
+import dev.sakusdev.armatureskin.screen.ArmatureSkinSelectionApi;
+import dev.sakusdev.armatureskin.screen.ArmatureSkinSelectorScreen;
+import dev.sakusdev.armatureskin.skin.ArmatureSkin;
+import dev.sakusdev.armatureskin.skin.ArmatureSkinManager;
+import dev.sakusdev.armatureskin.skin.ArmatureSkinTexture;
 import net.minecraft.Util;
 import net.minecraft.client.CameraType;
 import net.minecraft.client.KeyMapping;
@@ -207,23 +205,14 @@ public final class ArmatureSkinMod {
 
         try {
             releaseLoadedTexture(client);
-            ArmatureSkin selectedSkin = skinManager.resolveSelectedSkin().orElse(null);
             ArmatureModel model;
             SkinRenderTexture texture;
             Map<String, SkinRenderTexture> materialTextures;
             Map<String, SkinRenderTexture> meshTextures;
-            if (selectedSkin != null && selectedSkin.packageSkin()) {
-                Mc3dSkinContent content = Mc3dSkinPackage.read(fbxPath);
-                model = new FbxLoader().load(content.modelBytes(), content.manifest().model());
-                texture = loadPackagedTexture(client, content);
-                materialTextures = loadPackagedMaterialTextures(client, model, content);
-                meshTextures = loadPackagedAssignedMeshTextures(client, model, content);
-            } else {
-                model = new FbxLoader().load(fbxPath);
-                texture = loadSelectedTexture(client);
-                materialTextures = loadMaterialTextures(client, model);
-                meshTextures = loadAssignedMeshTextures(client, model);
-            }
+            model = new FbxLoader().load(fbxPath);
+            texture = loadSelectedTexture(client);
+            materialTextures = loadMaterialTextures(client, model);
+            meshTextures = loadAssignedMeshTextures(client, model);
             if (texture == null) {
                 texture = loadFallbackTexture(client);
             }
@@ -394,20 +383,19 @@ public final class ArmatureSkinMod {
             }
 
             @Override
-            public Path packageSelectedSkin(SkinEntry skin) {
-                refreshSkins(client);
-                ArmatureSkin selected = skinManager.findById(skin.id())
-                        .orElseThrow(() -> new IllegalStateException("Selected FBX skin is no longer available."));
-                ArmatureSkinTexture preferred = skinManager.resolveSelectedTexture(selected).orElse(null);
-                try {
-                    Path output = Mc3dSkinPackage.writePlain(client.gameDirectory.toPath(), selected, selected.availableTextures(), preferred);
-                    config = config.withSelectedSkin(new ArmatureSkin(stripSkinExtension(output.getFileName().toString()), stripSkinExtension(output.getFileName().toString()), output), client.gameDirectory.toPath());
-                    config.save(client.gameDirectory.toPath());
-                    reloadModel(client, true);
-                    return output;
-                } catch (IOException ex) {
-                    throw new IllegalStateException("Failed to package mc3dskin", ex);
+            public List<PartEntry> listParts(SkinEntry skin) {
+                ArmatureModel model = loadedModel;
+                if (model == null || !skin.id().equals(config.selectedSkinId())) {
+                    return List.of();
                 }
+                return model.meshes().stream()
+                        .map(mesh -> new PartEntry(mesh.key(), Component.literal(mesh.displayName()), config.isMeshDisabled(mesh.key())))
+                        .toList();
+            }
+
+            @Override
+            public boolean renderPreview(net.minecraft.client.gui.GuiGraphics guiGraphics, int x, int y, int width, int height, float partialTick) {
+                return RENDERER.renderGuiPreview(guiGraphics, x, y, width, height, partialTick);
             }
         };
     }
@@ -429,18 +417,6 @@ public final class ArmatureSkinMod {
             return null;
         }
         loadedTexture = loadTexture(client, texturePath, "dynamic/armature_skin");
-        return loadedTexture;
-    }
-
-    private static SkinRenderTexture loadPackagedTexture(Minecraft client, Mc3dSkinContent content) throws IOException {
-        if (client.getTextureManager() == null) {
-            return null;
-        }
-        Mc3dSkinContent.Texture texture = content.preferredTexture().orElse(null);
-        if (texture == null) {
-            return null;
-        }
-        loadedTexture = loadTexture(client, texture.bytes(), "dynamic/armature_skin");
         return loadedTexture;
     }
 
@@ -499,64 +475,6 @@ public final class ArmatureSkinMod {
         return textures;
     }
 
-    private static Map<String, SkinRenderTexture> loadPackagedMaterialTextures(Minecraft client, ArmatureModel model, Mc3dSkinContent content) throws IOException {
-        if (client.getTextureManager() == null) {
-            return Map.of();
-        }
-        Map<String, Mc3dSkinContent.Texture> textureByBaseName = new HashMap<>();
-        for (Mc3dSkinContent.Texture texture : content.textures()) {
-            textureByBaseName.put(normalizeName(baseName(Path.of(texture.path()).getFileName().toString())), texture);
-        }
-
-        Map<String, SkinRenderTexture> textures = new HashMap<>();
-        int index = 0;
-        for (ArmatureModel.Mesh mesh : model.meshes()) {
-            String materialKey = ArmatureSkinRenderer.normalizeMaterialName(mesh.materialName());
-            String textureHintKey = ArmatureSkinRenderer.normalizeMaterialName(mesh.textureHint());
-            if ((materialKey.isBlank() && textureHintKey.isBlank()) || textures.containsKey(materialKey) || textures.containsKey(textureHintKey)) {
-                continue;
-            }
-            String textureKey = bestTextureKey(mesh, textureByBaseName.keySet());
-            Mc3dSkinContent.Texture matchingTexture = textureKey == null ? null : textureByBaseName.get(textureKey);
-            if (matchingTexture == null) {
-                continue;
-            }
-            SkinRenderTexture location = loadTexture(client, matchingTexture.bytes(), "dynamic/material_" + index++);
-            putTextureAlias(loadedMaterialTextures, materialKey, location);
-            putTextureAlias(loadedMaterialTextures, textureHintKey, location);
-            putTextureAlias(textures, materialKey, location);
-            putTextureAlias(textures, textureHintKey, location);
-        }
-        return textures;
-    }
-
-    private static Map<String, SkinRenderTexture> loadPackagedAssignedMeshTextures(Minecraft client, ArmatureModel model, Mc3dSkinContent content) throws IOException {
-        if (client.getTextureManager() == null || config.meshTextureAssignments().isEmpty()) {
-            return Map.of();
-        }
-
-        Map<String, Mc3dSkinContent.Texture> texturesById = new HashMap<>();
-        for (Mc3dSkinContent.Texture texture : content.textures()) {
-            texturesById.put("package:" + texture.path(), texture);
-            texturesById.put(stripTextureExtension(texture.path()), texture);
-            texturesById.put(normalizeName(baseName(Path.of(texture.path()).getFileName().toString())), texture);
-        }
-
-        Map<String, SkinRenderTexture> textures = new HashMap<>();
-        int index = 0;
-        for (ArmatureModel.Mesh mesh : model.meshes()) {
-            String textureId = config.meshTextureId(mesh.key());
-            Mc3dSkinContent.Texture assigned = texturesById.get(textureId);
-            if (assigned == null) {
-                continue;
-            }
-            SkinRenderTexture location = loadTexture(client, assigned.bytes(), "dynamic/mesh_" + index++);
-            loadedMeshTextures.put(mesh.key(), location);
-            textures.put(mesh.key(), location);
-        }
-        return textures;
-    }
-
     private static SkinRenderTexture loadTexture(Minecraft client, Path path, String id) throws IOException {
         return loadTexture(client, Files.readAllBytes(path), id);
     }
@@ -570,7 +488,7 @@ public final class ArmatureSkinMod {
                 alphaMode = SkinRenderTexture.AlphaMode.CUTOUT;
             }
             DynamicTexture dynamicTexture = new DynamicTexture(image);
-            dynamicTexture.setFilter(true, false);
+            dynamicTexture.setFilter(false, false);
             image = null;
             ResourceLocation location = ResourceLocation.fromNamespaceAndPath(MOD_ID, id);
             client.getTextureManager().register(location, dynamicTexture);
@@ -717,18 +635,9 @@ public final class ArmatureSkinMod {
 
     private static String stripSkinExtension(String value) {
         String lower = value.toLowerCase(Locale.ROOT);
-        if (lower.endsWith(".mc3dskin")) {
-            return value.substring(0, value.length() - ".mc3dskin".length());
-        }
         if (lower.endsWith(".fbx")) {
             return value.substring(0, value.length() - ".fbx".length());
         }
         return value;
-    }
-
-    private static String stripTextureExtension(String value) {
-        String fileName = Path.of(value).getFileName().toString();
-        int extensionStart = fileName.lastIndexOf('.');
-        return extensionStart < 0 ? fileName : fileName.substring(0, extensionStart);
     }
 }

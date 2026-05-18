@@ -1,12 +1,12 @@
-package dev.codex.armatureskin.config;
+package dev.sakusdev.armatureskin.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import dev.codex.armatureskin.skin.ArmatureSkin;
-import dev.codex.armatureskin.skin.ArmatureSkinManager;
-import dev.codex.armatureskin.skin.ArmatureSkinTexture;
+import dev.sakusdev.armatureskin.skin.ArmatureSkin;
+import dev.sakusdev.armatureskin.skin.ArmatureSkinManager;
+import dev.sakusdev.armatureskin.skin.ArmatureSkinTexture;
 
 import java.io.IOException;
 import java.io.Reader;

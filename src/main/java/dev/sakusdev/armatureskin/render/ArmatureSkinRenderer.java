@@ -1,12 +1,16 @@
-package dev.codex.armatureskin.render;
+package dev.sakusdev.armatureskin.render;
 
+import com.mojang.blaze3d.platform.Lighting;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
-import dev.codex.armatureskin.config.ArmatureSkinConfig;
-import dev.codex.armatureskin.model.ArmatureModel;
+import dev.sakusdev.armatureskin.config.ArmatureSkinConfig;
+import dev.sakusdev.armatureskin.model.ArmatureModel;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.OverlayTexture;
@@ -58,6 +62,40 @@ public final class ArmatureSkinRenderer {
             return false;
         }
 
+        return renderModel(current, player, yaw, tickDelta, matrices, buffers, light, player.isCrouching());
+    }
+
+    public boolean renderGuiPreview(GuiGraphics guiGraphics, int x, int y, int width, int height, float partialTick) {
+        ArmatureModel current = model;
+        if (current == null || !config.enabled() || width <= 8 || height <= 8) {
+            return false;
+        }
+
+        guiGraphics.enableScissor(x, y, x + width, y + height);
+        guiGraphics.flush();
+        RenderSystem.enableDepthTest();
+        Lighting.setupForEntityInInventory();
+        PoseStack matrices = guiGraphics.pose();
+        matrices.pushPose();
+        try {
+            int modelHeight = Math.max(40, height - 28);
+            float pixelScale = modelHeight / TARGET_MODEL_HEIGHT * 0.82F;
+            float spin = ((Minecraft.getInstance().player == null ? 0.0F : Minecraft.getInstance().player.tickCount) + partialTick) * 0.45F;
+            matrices.translate(x + width * 0.5F, y + height - 12.0F, 200.0F);
+            matrices.scale(pixelScale, -pixelScale, pixelScale);
+            matrices.mulPose(Axis.YP.rotationDegrees(spin));
+            renderModel(current, null, 0.0F, partialTick, matrices, guiGraphics.bufferSource(), LightTexture.FULL_BRIGHT, false);
+            guiGraphics.flush();
+        } finally {
+            matrices.popPose();
+            Lighting.setupFor3DItems();
+            RenderSystem.disableDepthTest();
+            guiGraphics.disableScissor();
+        }
+        return true;
+    }
+
+    private boolean renderModel(ArmatureModel current, AbstractClientPlayer player, float yaw, float tickDelta, PoseStack matrices, MultiBufferSource buffers, int light, boolean crouching) {
         matrices.pushPose();
         try {
             matrices.mulPose(Axis.YP.rotationDegrees(config.modelYawOffsetDegrees() - yaw));
@@ -71,7 +109,7 @@ public final class ArmatureSkinRenderer {
             float renderScale = autoScale * userScale;
             matrices.scale(renderScale, renderScale, renderScale);
             matrices.translate(-bounds.centerX(), -bounds.minY(), -bounds.centerZ());
-            if (player.isCrouching() && config.mirrorVanillaSneak()) {
+            if (crouching && config.mirrorVanillaSneak()) {
                 matrices.translate(0.0F, -0.25F / renderScale, 0.0F);
             }
 
@@ -118,7 +156,13 @@ public final class ArmatureSkinRenderer {
         if (materialTexture != null) {
             return materialTexture;
         }
-        return texture == null ? new SkinRenderTexture(player.getSkin().texture(), SkinRenderTexture.AlphaMode.CUTOUT) : texture;
+        if (texture != null) {
+            return texture;
+        }
+        if (player != null) {
+            return new SkinRenderTexture(player.getSkin().texture(), SkinRenderTexture.AlphaMode.CUTOUT);
+        }
+        return new SkinRenderTexture(ResourceLocation.fromNamespaceAndPath("minecraft", "textures/misc/white.png"), SkinRenderTexture.AlphaMode.OPAQUE);
     }
 
     private Matrix4f[] buildSkinMatrices(ArmatureModel current, AbstractClientPlayer player, float tickDelta) {
@@ -126,11 +170,11 @@ public final class ArmatureSkinRenderer {
         Matrix4f[] global = new Matrix4f[bones.size()];
         Matrix4f[] skin = new Matrix4f[bones.size()];
 
-        float limbAngle = config.animationEnabled() ? player.walkAnimation.position(tickDelta) : 0.0F;
-        float limbDistance = config.animationEnabled() ? player.walkAnimation.speed(tickDelta) : 0.0F;
-        float age = player.tickCount + tickDelta;
-        float headYaw = player.getYHeadRot() - player.yBodyRot;
-        float headPitch = player.getXRot();
+        float limbAngle = config.animationEnabled() && player != null ? player.walkAnimation.position(tickDelta) : 0.0F;
+        float limbDistance = config.animationEnabled() && player != null ? player.walkAnimation.speed(tickDelta) : 0.0F;
+        float age = player == null ? partialPreviewAge(tickDelta) : player.tickCount + tickDelta;
+        float headYaw = player == null ? 0.0F : player.getYHeadRot() - player.yBodyRot;
+        float headPitch = player == null ? 0.0F : player.getXRot();
 
         for (int i = 0; i < bones.size(); i++) {
             ArmatureModel.Bone bone = bones.get(i);
@@ -143,6 +187,11 @@ public final class ArmatureSkinRenderer {
             skin[i] = new Matrix4f(global[i]).mul(bone.inverseBindTransform());
         }
         return skin;
+    }
+
+    private float partialPreviewAge(float tickDelta) {
+        AbstractClientPlayer player = Minecraft.getInstance().player;
+        return player == null ? tickDelta : player.tickCount + tickDelta;
     }
 
     private void emitTriangle(VertexConsumer consumer, PoseStack.Pose entry, ArmatureModel.Vertex a, ArmatureModel.Vertex b, ArmatureModel.Vertex c, Matrix4f[] skinMatrices, int light) {

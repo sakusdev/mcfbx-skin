@@ -1,6 +1,6 @@
-package dev.codex.armatureskin.fbx;
+package dev.sakusdev.armatureskin.fbx;
 
-import dev.codex.armatureskin.model.ArmatureModel;
+import dev.sakusdev.armatureskin.model.ArmatureModel;
 import org.joml.Matrix4f;
 
 import java.io.ByteArrayInputStream;

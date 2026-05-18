@@ -6,7 +6,7 @@
 .\.gradle-local\gradle-8.14\bin\gradle.bat compileTestJava
 ```
 
-After test classes compile, run `dev.codex.armatureskin.fbx.AsciiFbxLoaderFixtureSanity` on the Gradle test runtime classpath. The helper builds an in-memory ASCII FBX fixture with:
+After test classes compile, run `dev.sakusdev.armatureskin.fbx.AsciiFbxLoaderFixtureSanity` on the Gradle test runtime classpath. The helper builds an in-memory ASCII FBX fixture with:
 
 - one `LimbNode` armature model
 - one weighted triangle mesh

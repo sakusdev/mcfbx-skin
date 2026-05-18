@@ -10,7 +10,7 @@ Client-only NeoForge mod for Minecraft 1.21.1 that renders an FBX model with an 
 4. Put `.fbx` skins in the `.minecraft/fbx` folder. Subfolders are supported.
 5. Put optional `.png`, `.jpg`, or `.jpeg` UV textures in the same `.minecraft/fbx` folder tree. A texture next to an FBX with the same basename is preferred automatically, such as `alex.fbx` and `alex.png`. Multiple textures are supported as selectable candidates.
 6. Set `selectedSkinId` to the discovered skin id, or set `selectedSkinPath` to an absolute path or a path relative to the `.minecraft` game directory. Set `selectedTextureId` or `selectedTexturePath` to override the automatically preferred texture.
-7. Press `K` in game to open the FBX/Texture selector. Use it to choose the FBX model and UV texture; chat prompts also point back to `K` when no model is loaded.
+7. Press `K` in game to open the FBX Skin Selector. Use the left side to choose the FBX and toggle model parts; the right side shows the currently loaded model preview. Textures are matched automatically by FBX material names and nearby texture files.
 8. Press `R` in game to reload the model.
 
 ```json
@@ -34,11 +34,11 @@ Client-only NeoForge mod for Minecraft 1.21.1 that renders an FBX model with an 
 }
 ```
 
-Skin ids are based on the path under `.minecraft/fbx` without the `.fbx` extension. For example, `.minecraft/fbx/player_binary.fbx` has id `player_binary`, and `.minecraft/fbx/custom/alex.fbx` has id `custom/alex`. Texture ids use the same rule with `.png`, `.jpg`, or `.jpeg` removed. If no configured skin selection resolves, the first discovered FBX skin is used. If no configured texture selection resolves, the selected skin prefers a sibling texture with the same basename, then the first sibling texture. Material textures are matched by FBX material name, so files such as `kipfel_body_skin.png` and `kipfel_hair.png` can be used together. `fbxPath` is kept as a legacy fallback for older configs. `forceOpaqueSkin` is enabled by default so transparent pixels use cutout rendering instead of making FBX surfaces disappear.
+Skin ids are based on the path under `.minecraft/fbx` without the `.fbx` extension. For example, `.minecraft/fbx/player_binary.fbx` has id `player_binary`, and `.minecraft/fbx/custom/alex.fbx` has id `custom/alex`. Texture ids use the same rule with `.png`, `.jpg`, or `.jpeg` removed. If no configured skin selection resolves, the first discovered FBX skin is used. If no configured texture selection resolves, the selected skin prefers a sibling texture with the same basename, then the first sibling texture. Material textures are matched by FBX material name, so files such as `kipfel_body_skin.png` and `kipfel_hair.png` can be used together without manual selection. `fbxPath` is kept as a legacy fallback for older configs. `forceOpaqueSkin` is enabled by default so transparent pixels use cutout rendering instead of making FBX surfaces disappear.
 
 ## Notes
 
 - Binary FBX support covers the mesh, armature, UV, skin cluster, and object connection data used by Blender-style character exports.
 - Minecraft 1.21.1/NeoForge targets Java 21.
 - Bone animation is generated procedurally from the player's walking state. Common humanoid `upperleg`, `lowerleg`, `upperarm`, and `lowerarm` bones are driven with a relaxed standing arm pose and a visible walk swing; set `animationStrength` lower or `animationEnabled` false if an FBX uses unusual bone axes.
-- The renderer uses the selected UV texture when one is available, then material-matched textures, and falls back to the player's current skin texture.
+- The renderer uses material-matched textures first, then the selected or preferred UV texture, and falls back to the player's current skin texture.

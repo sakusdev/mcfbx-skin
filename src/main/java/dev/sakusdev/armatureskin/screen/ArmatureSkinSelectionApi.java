@@ -1,5 +1,6 @@
-package dev.codex.armatureskin.screen;
+package dev.sakusdev.armatureskin.screen;
 
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 
 import java.nio.file.Path;
@@ -37,6 +38,14 @@ public interface ArmatureSkinSelectionApi {
     default void toggleMesh(SkinEntry skin, String meshKey) {
     }
 
+    default List<PartEntry> listParts(SkinEntry skin) {
+        return List.of();
+    }
+
+    default boolean renderPreview(GuiGraphics guiGraphics, int x, int y, int width, int height, float partialTick) {
+        return false;
+    }
+
     default void reloadTextures(SkinEntry skin) {
     }
 
@@ -44,13 +53,12 @@ public interface ArmatureSkinSelectionApi {
         openSkinsFolder();
     }
 
-    default Path packageSelectedSkin(SkinEntry skin) {
-        throw new UnsupportedOperationException("Packaging is not available.");
-    }
-
     record SkinEntry(String id, Component displayName, Path path) {
     }
 
     record TextureEntry(String id, Component displayName, Path path) {
+    }
+
+    record PartEntry(String key, Component displayName, boolean hidden) {
     }
 }

@@ -1,6 +1,6 @@
-package dev.codex.armatureskin.skin;
+package dev.sakusdev.armatureskin.skin;
 
-import dev.codex.armatureskin.config.ArmatureSkinConfig;
+import dev.sakusdev.armatureskin.config.ArmatureSkinConfig;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -144,9 +144,8 @@ public final class ArmatureSkinManager {
     private static ArmatureSkin discoveredSkin(Path skinDir, Path path, List<ArmatureSkinTexture> textures) {
         Path normalizedPath = path.toAbsolutePath().normalize();
         String relative = skinDir.relativize(normalizedPath).toString().replace('\\', '/');
-        boolean packageSkin = hasPackageExtension(normalizedPath);
         String id = stripSkinExtension(relative);
-        return new ArmatureSkin(id, displayName(normalizedPath), normalizedPath, !packageSkin && isAsciiFbx(normalizedPath), packageSkin, packageSkin ? List.of() : siblingTextures(normalizedPath, textures));
+        return new ArmatureSkin(id, displayName(normalizedPath), normalizedPath, isAsciiFbx(normalizedPath), siblingTextures(normalizedPath, textures));
     }
 
     private static ArmatureSkinTexture discoveredTexture(Path skinDir, Path path) {
@@ -179,8 +178,7 @@ public final class ArmatureSkinManager {
                 .filter(skin -> skin.path().toAbsolutePath().normalize().equals(normalizedPath))
                 .findFirst()
                 .or(() -> {
-                    boolean packageSkin = hasPackageExtension(normalizedPath);
-                    return Optional.of(new ArmatureSkin(idPrefix + ":" + stripSkinExtension(normalizedPath.getFileName().toString()), displayName(normalizedPath), normalizedPath, !packageSkin && isAsciiFbx(normalizedPath), packageSkin, packageSkin ? List.of() : siblingTextures(normalizedPath, availableTextures)));
+                    return Optional.of(new ArmatureSkin(idPrefix + ":" + stripSkinExtension(normalizedPath.getFileName().toString()), displayName(normalizedPath), normalizedPath, isAsciiFbx(normalizedPath), siblingTextures(normalizedPath, availableTextures)));
                 });
     }
 
@@ -202,13 +200,8 @@ public final class ArmatureSkinManager {
         return fileName.endsWith(".fbx");
     }
 
-    private static boolean hasPackageExtension(Path path) {
-        String fileName = path.getFileName().toString().toLowerCase(Locale.ROOT);
-        return fileName.endsWith(".mc3dskin");
-    }
-
     private static boolean hasSkinExtension(Path path) {
-        return hasFbxExtension(path) || hasPackageExtension(path);
+        return hasFbxExtension(path);
     }
 
     private static boolean hasTextureExtension(Path path) {
@@ -246,10 +239,6 @@ public final class ArmatureSkinManager {
     }
 
     private static String stripSkinExtension(String value) {
-        String lower = value.toLowerCase(Locale.ROOT);
-        if (lower.endsWith(".mc3dskin")) {
-            return value.substring(0, value.length() - ".mc3dskin".length());
-        }
         return stripFbxExtension(value);
     }
 

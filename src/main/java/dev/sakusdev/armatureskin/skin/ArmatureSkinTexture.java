@@ -1,4 +1,4 @@
-package dev.codex.armatureskin.skin;
+package dev.sakusdev.armatureskin.skin;
 
 import java.nio.file.Path;
 

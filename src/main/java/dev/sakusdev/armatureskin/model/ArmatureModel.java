@@ -1,4 +1,4 @@
-package dev.codex.armatureskin.model;
+package dev.sakusdev.armatureskin.model;
 
 import org.joml.Matrix4f;
 
