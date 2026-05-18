@@ -40,5 +40,5 @@ Skin ids are based on the path under `.minecraft/fbx` without the `.fbx` extensi
 
 - Binary FBX support covers the mesh, armature, UV, skin cluster, and object connection data used by Blender-style character exports.
 - Minecraft 1.21.1/NeoForge targets Java 21.
-- Bone animation is generated procedurally from the player's walking state. By default it applies a conservative leg-only walk cycle to common `upperleg` and `lowerleg` bone names; set `animationStrength` lower or `animationEnabled` false if an FBX uses unusual bone axes.
+- Bone animation is generated procedurally from the player's walking state. Common humanoid `upperleg`, `lowerleg`, `upperarm`, and `lowerarm` bones are driven with a relaxed standing arm pose and a visible walk swing; set `animationStrength` lower or `animationEnabled` false if an FBX uses unusual bone axes.
 - The renderer uses the selected UV texture when one is available, then material-matched textures, and falls back to the player's current skin texture.
