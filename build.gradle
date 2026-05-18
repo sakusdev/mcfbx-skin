@@ -48,6 +48,16 @@ runs {
     configureEach {
         systemProperty "forge.logging.markers", "REGISTRIES"
         systemProperty "forge.logging.console.level", "debug"
+        [
+                "armature_fbx_skin.debugCapture",
+                "armature_fbx_skin.debugCaptureQuit",
+                "armature_fbx_skin.debugCaptureDelay",
+                "armature_fbx_skin.debugWorld"
+        ].each { key ->
+            if (System.getProperty(key) != null) {
+                systemProperty key, System.getProperty(key)
+            }
+        }
         workingDirectory project.layout.projectDirectory.dir("run").dir(name)
         modSource project.sourceSets.main
     }

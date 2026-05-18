@@ -22,18 +22,23 @@ Client-only NeoForge mod for Minecraft 1.21.1 that renders an FBX model with an 
   "selectedTextureId": "",
   "selectedTexturePath": "",
   "fbxPath": "",
-  "scale": 0.01,
+  "disabledMeshKeys": "",
+  "meshTextureAssignments": {},
+  "scale": 1.0,
   "yOffset": 0.0,
+  "modelYawOffsetDegrees": 0.0,
+  "animationEnabled": true,
+  "animationStrength": 0.18,
   "mirrorVanillaSneak": true,
   "forceOpaqueSkin": true
 }
 ```
 
-Skin ids are based on the path under `.minecraft/fbx` without the `.fbx` extension. For example, `.minecraft/fbx/player_binary.fbx` has id `player_binary`, and `.minecraft/fbx/custom/alex.fbx` has id `custom/alex`. Texture ids use the same rule with `.png`, `.jpg`, or `.jpeg` removed. If no configured skin selection resolves, the first discovered FBX skin is used. If no configured texture selection resolves, the selected skin prefers a sibling texture with the same basename, then the first sibling texture. `fbxPath` is kept as a legacy fallback for older configs. `forceOpaqueSkin` is enabled by default so transparent pixels in the Minecraft skin overlay do not make FBX surfaces disappear.
+Skin ids are based on the path under `.minecraft/fbx` without the `.fbx` extension. For example, `.minecraft/fbx/player_binary.fbx` has id `player_binary`, and `.minecraft/fbx/custom/alex.fbx` has id `custom/alex`. Texture ids use the same rule with `.png`, `.jpg`, or `.jpeg` removed. If no configured skin selection resolves, the first discovered FBX skin is used. If no configured texture selection resolves, the selected skin prefers a sibling texture with the same basename, then the first sibling texture. Material textures are matched by FBX material name, so files such as `kipfel_body_skin.png` and `kipfel_hair.png` can be used together. `fbxPath` is kept as a legacy fallback for older configs. `forceOpaqueSkin` is enabled by default so transparent pixels use cutout rendering instead of making FBX surfaces disappear.
 
 ## Notes
 
 - Binary FBX support covers the mesh, armature, UV, skin cluster, and object connection data used by Blender-style character exports.
 - Minecraft 1.21.1/NeoForge targets Java 21.
-- Bone animation is generated procedurally from the player's walking state. Bone names containing common words such as `arm`, `forearm`, `thigh`, `leg`, `shin`, `foot`, `head`, `neck`, `spine`, or `chest` receive sensible Minecraft-style motion.
-- The renderer uses the selected UV texture when one is available, and falls back to the player's current skin texture.
+- Bone animation is generated procedurally from the player's walking state. By default it applies a conservative leg-only walk cycle to common `upperleg` and `lowerleg` bone names; set `animationStrength` lower or `animationEnabled` false if an FBX uses unusual bone axes.
+- The renderer uses the selected UV texture when one is available, then material-matched textures, and falls back to the player's current skin texture.

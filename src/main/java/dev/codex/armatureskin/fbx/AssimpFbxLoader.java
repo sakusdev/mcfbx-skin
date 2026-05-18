@@ -72,11 +72,11 @@ final class AssimpFbxLoader {
         boneIndexByName = orderBones(boneIndexByName.keySet(), nodes);
 
         List<ArmatureModel.Bone> bones = buildBones(boneIndexByName, inverseBindByBone, nodes, rootInverse);
-        List<String> materialNames = readMaterialNames(scene);
+        List<MaterialInfo> materials = readMaterials(scene);
         List<ArmatureModel.Mesh> meshes = new ArrayList<>();
         for (int meshIndex = 0; meshIndex < scene.mNumMeshes(); meshIndex++) {
             AIMesh mesh = AIMesh.create(sceneMeshes.get(meshIndex));
-            ArmatureModel.Mesh converted = convertMesh(mesh, meshIndex, materialName(materialNames, mesh.mMaterialIndex()), boneIndexByName, nodes.meshTransform(meshIndex, rootInverse));
+            ArmatureModel.Mesh converted = convertMesh(mesh, meshIndex, materialInfo(materials, mesh.mMaterialIndex()), boneIndexByName, nodes.meshTransform(meshIndex, rootInverse));
             if (!converted.vertices().isEmpty() && converted.indices().length > 0) {
                 meshes.add(converted);
             }
@@ -155,22 +155,37 @@ final class AssimpFbxLoader {
         return List.of(bones);
     }
 
-    private static ArmatureModel.Mesh convertMesh(AIMesh mesh, int meshIndex, String materialName, Map<String, Integer> boneIndexByName, Matrix4f staticMeshTransform) {
+    private static ArmatureModel.Mesh convertMesh(AIMesh mesh, int meshIndex, MaterialInfo material, Map<String, Integer> boneIndexByName, Matrix4f staticMeshTransform) {
         int vertexCount = mesh.mNumVertices();
         AIVector3D.Buffer positions = mesh.mVertices();
         if (positions == null || vertexCount <= 0) {
-            return new ArmatureModel.Mesh("assimp:" + meshIndex, name(mesh.mName()), materialName, List.of(), new int[0]);
+            return new ArmatureModel.Mesh("assimp:" + meshIndex, name(mesh.mName()), material.name(), material.textureHint(), List.of(), new int[0]);
         }
 
         List<VertexWeight>[] weightsByVertex = collectWeights(mesh, vertexCount, boneIndexByName);
         boolean skinnedMesh = hasWeights(weightsByVertex);
         AIVector3D.Buffer texCoords = mesh.mTextureCoords(0);
+        AIVector3D.Buffer normals = mesh.mNormals();
         List<ArmatureModel.Vertex> vertices = new ArrayList<>(vertexCount);
         for (int vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++) {
             AIVector3D position = positions.get(vertexIndex);
             Vector3f bakedPosition = new Vector3f(position.x(), position.y(), position.z());
             if (!skinnedMesh) {
                 bakedPosition.mulPosition(staticMeshTransform);
+            }
+
+            Vector3f bakedNormal = new Vector3f(0.0F, 1.0F, 0.0F);
+            if (normals != null && vertexIndex < normals.limit()) {
+                AIVector3D normal = normals.get(vertexIndex);
+                bakedNormal.set(normal.x(), normal.y(), normal.z());
+                if (!skinnedMesh) {
+                    bakedNormal.mulDirection(staticMeshTransform);
+                }
+                if (bakedNormal.lengthSquared() > 0.000001F) {
+                    bakedNormal.normalize();
+                } else {
+                    bakedNormal.set(0.0F, 1.0F, 0.0F);
+                }
             }
 
             float u = 0.0F;
@@ -188,7 +203,7 @@ final class AssimpFbxLoader {
                 boneIndices[i] = normalized.get(i).boneIndex();
                 boneWeights[i] = normalized.get(i).weight();
             }
-            vertices.add(new ArmatureModel.Vertex(bakedPosition.x(), bakedPosition.y(), bakedPosition.z(), u, v, boneIndices, boneWeights));
+            vertices.add(new ArmatureModel.Vertex(bakedPosition.x(), bakedPosition.y(), bakedPosition.z(), u, v, boneIndices, boneWeights, bakedNormal.x(), bakedNormal.y(), bakedNormal.z()));
         }
 
         List<Integer> indices = new ArrayList<>(mesh.mNumFaces() * 3);
@@ -210,8 +225,8 @@ final class AssimpFbxLoader {
         }
 
         String meshName = name(mesh.mName());
-        String key = "assimp:" + meshIndex + "|mesh:" + normalizeKey(meshName) + "|material:" + normalizeKey(materialName);
-        return new ArmatureModel.Mesh(key, meshName, materialName, vertices, indices.stream().mapToInt(Integer::intValue).toArray());
+        String key = "assimp:" + meshIndex + "|mesh:" + normalizeKey(meshName) + "|material:" + normalizeKey(material.name());
+        return new ArmatureModel.Mesh(key, meshName, material.name(), material.textureHint(), vertices, indices.stream().mapToInt(Integer::intValue).toArray());
     }
 
     @SuppressWarnings("unchecked")
@@ -278,22 +293,21 @@ final class AssimpFbxLoader {
         return normalized;
     }
 
-    private static List<String> readMaterialNames(AIScene scene) {
+    private static List<MaterialInfo> readMaterials(AIScene scene) {
         PointerBuffer materials = scene.mMaterials();
         if (materials == null || scene.mNumMaterials() <= 0) {
             return List.of();
         }
 
-        List<String> names = new ArrayList<>(scene.mNumMaterials());
+        List<MaterialInfo> names = new ArrayList<>(scene.mNumMaterials());
         for (int i = 0; i < scene.mNumMaterials(); i++) {
             AIMaterial material = AIMaterial.create(materials.get(i));
             String textureName = diffuseTextureName(material);
-            if (!textureName.isBlank()) {
-                names.add(baseName(textureName));
-                continue;
-            }
             String materialName = materialName(material);
-            names.add(materialName.isBlank() ? "material_" + i : materialName);
+            if (materialName.isBlank()) {
+                materialName = textureName.isBlank() ? "material_" + i : baseName(textureName);
+            }
+            names.add(new MaterialInfo(materialName, baseName(textureName)));
         }
         return names;
     }
@@ -318,11 +332,11 @@ final class AssimpFbxLoader {
         }
     }
 
-    private static String materialName(List<String> materialNames, int materialIndex) {
-        if (materialIndex >= 0 && materialIndex < materialNames.size()) {
-            return materialNames.get(materialIndex);
+    private static MaterialInfo materialInfo(List<MaterialInfo> materials, int materialIndex) {
+        if (materialIndex >= 0 && materialIndex < materials.size()) {
+            return materials.get(materialIndex);
         }
-        return "material_" + materialIndex;
+        return new MaterialInfo("material_" + materialIndex, "");
     }
 
     private static Matrix4f toJoml(AIMatrix4x4 matrix) {
@@ -376,6 +390,13 @@ final class AssimpFbxLoader {
     }
 
     private record VertexWeight(int boneIndex, float weight) {
+    }
+
+    private record MaterialInfo(String name, String textureHint) {
+        private MaterialInfo {
+            name = name == null ? "" : name;
+            textureHint = textureHint == null ? "" : textureHint;
+        }
     }
 
     private record SceneNodes(String rootName, Map<String, String> parentByNode, Map<String, Matrix4f> globalByNode, Map<Integer, Matrix4f> meshGlobalByIndex) {

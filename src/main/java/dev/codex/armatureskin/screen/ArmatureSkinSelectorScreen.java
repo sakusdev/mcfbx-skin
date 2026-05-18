@@ -88,6 +88,14 @@ public final class ArmatureSkinSelectorScreen extends Screen {
     }
 
     @Override
+    protected void renderBlurredBackground(float partialTick) {
+    }
+
+    @Override
+    protected void renderMenuBackground(GuiGraphics guiGraphics) {
+    }
+
+    @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0 && inSkinPanel(mouseX, mouseY)) {
             int index = rowAt(mouseY, skinScroll);

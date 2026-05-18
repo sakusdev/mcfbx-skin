@@ -31,6 +31,9 @@ public record ArmatureSkinConfig(
         String fbxPath,
         float scale,
         float yOffset,
+        float modelYawOffsetDegrees,
+        boolean animationEnabled,
+        float animationStrength,
         boolean mirrorVanillaSneak,
         boolean forceOpaqueSkin
 ) {
@@ -47,7 +50,7 @@ public record ArmatureSkinConfig(
             boolean mirrorVanillaSneak,
             boolean forceOpaqueSkin
     ) {
-        this(enabled, localPlayerOnly, selectedSkinId, selectedSkinPath, "", "", "", Map.of(), fbxPath, scale, yOffset, mirrorVanillaSneak, forceOpaqueSkin);
+        this(enabled, localPlayerOnly, selectedSkinId, selectedSkinPath, "", "", "", Map.of(), fbxPath, scale, yOffset, 0.0F, true, 0.18F, mirrorVanillaSneak, forceOpaqueSkin);
     }
 
     public ArmatureSkinConfig {
@@ -58,10 +61,12 @@ public record ArmatureSkinConfig(
         disabledMeshKeys = disabledMeshKeys == null ? "" : disabledMeshKeys;
         meshTextureAssignments = cleanAssignments(meshTextureAssignments);
         fbxPath = fbxPath == null ? "" : fbxPath;
+        modelYawOffsetDegrees = Float.isFinite(modelYawOffsetDegrees) ? modelYawOffsetDegrees : 0.0F;
+        animationStrength = Float.isFinite(animationStrength) ? Math.max(0.0F, Math.min(animationStrength, 1.5F)) : 0.18F;
     }
 
     public static ArmatureSkinConfig defaults() {
-        return new ArmatureSkinConfig(true, true, "", "", "", "", "", Map.of(), "", 1.0F, 0.0F, true, false);
+        return new ArmatureSkinConfig(true, true, "", "", "", "", "", Map.of(), "", 1.0F, 0.0F, 0.0F, true, 0.18F, true, true);
     }
 
     public static ArmatureSkinConfig loadOrCreate(Path gameDir) {
@@ -90,6 +95,9 @@ public record ArmatureSkinConfig(
                         string(json, "fbxPath", defaults.fbxPath),
                         number(json, "scale", defaults.scale),
                         number(json, "yOffset", defaults.yOffset),
+                        number(json, "modelYawOffsetDegrees", defaults.modelYawOffsetDegrees),
+                        bool(json, "animationEnabled", defaults.animationEnabled),
+                        number(json, "animationStrength", defaults.animationStrength),
                         bool(json, "mirrorVanillaSneak", defaults.mirrorVanillaSneak),
                         bool(json, "forceOpaqueSkin", defaults.forceOpaqueSkin)
                 );
@@ -167,6 +175,9 @@ public record ArmatureSkinConfig(
                 fbxPath,
                 scale,
                 yOffset,
+                modelYawOffsetDegrees,
+                animationEnabled,
+                animationStrength,
                 mirrorVanillaSneak,
                 forceOpaqueSkin
         );
@@ -193,6 +204,9 @@ public record ArmatureSkinConfig(
                 fbxPath,
                 scale,
                 yOffset,
+                modelYawOffsetDegrees,
+                animationEnabled,
+                animationStrength,
                 mirrorVanillaSneak,
                 forceOpaqueSkin
         );
@@ -251,6 +265,9 @@ public record ArmatureSkinConfig(
                 fbxPath,
                 scale,
                 yOffset,
+                modelYawOffsetDegrees,
+                animationEnabled,
+                animationStrength,
                 mirrorVanillaSneak,
                 forceOpaqueSkin
         );
@@ -282,6 +299,9 @@ public record ArmatureSkinConfig(
                 fbxPath,
                 scale,
                 yOffset,
+                modelYawOffsetDegrees,
+                animationEnabled,
+                animationStrength,
                 mirrorVanillaSneak,
                 forceOpaqueSkin
         );
