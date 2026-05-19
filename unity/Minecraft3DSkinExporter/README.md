@@ -1,5 +1,5 @@
 # Minecraft 3D Skin Exporter
-
+**This package is no longer needed*
 Unity Editor package for exporting FBX avatars and material textures into `.mc3dskin` packages.
 
 ## Supported Unity Version
