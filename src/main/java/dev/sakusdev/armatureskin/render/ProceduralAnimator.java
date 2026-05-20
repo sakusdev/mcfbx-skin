@@ -37,10 +37,9 @@ final class ProceduralAnimator {
         } else if (isLowerLeg(name)) {
             animated.rotateX(Math.max(0.0F, -sideWalk) * 0.45F + 0.42F * crouch);
         } else if (isUpperArm(name)) {
-            animated.rotateZ(left ? 1.15F : -1.15F);
-            animated.rotateX(sideWalk * 0.32F + 0.06F * crouch);
+            animated.rotateX(sideWalk * 0.28F + 0.04F * crouch);
         } else if (isLowerArm(name)) {
-            animated.rotateX(sideWalk * 0.18F);
+            animated.rotateX(sideWalk * 0.10F);
         }
 
         return animated;
