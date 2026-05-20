@@ -35,7 +35,8 @@ public record ArmatureSkinConfig(
         boolean animationEnabled,
         float animationStrength,
         boolean mirrorVanillaSneak,
-        boolean forceOpaqueSkin
+        boolean forceOpaqueSkin,
+        boolean firstPersonModelHands
 ) {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
@@ -50,7 +51,7 @@ public record ArmatureSkinConfig(
             boolean mirrorVanillaSneak,
             boolean forceOpaqueSkin
     ) {
-        this(enabled, localPlayerOnly, selectedSkinId, selectedSkinPath, "", "", "", Map.of(), fbxPath, scale, yOffset, 0.0F, true, 0.18F, mirrorVanillaSneak, forceOpaqueSkin);
+        this(enabled, localPlayerOnly, selectedSkinId, selectedSkinPath, "", "", "", Map.of(), fbxPath, scale, yOffset, 0.0F, true, 0.18F, mirrorVanillaSneak, forceOpaqueSkin, false);
     }
 
     public ArmatureSkinConfig {
@@ -66,7 +67,7 @@ public record ArmatureSkinConfig(
     }
 
     public static ArmatureSkinConfig defaults() {
-        return new ArmatureSkinConfig(true, true, "", "", "", "", "", Map.of(), "", 1.0F, 0.0F, 0.0F, true, 0.18F, true, true);
+        return new ArmatureSkinConfig(true, true, "", "", "", "", "", Map.of(), "", 1.0F, 0.0F, 0.0F, true, 0.18F, true, true, false);
     }
 
     public static ArmatureSkinConfig loadOrCreate(Path gameDir) {
@@ -99,7 +100,8 @@ public record ArmatureSkinConfig(
                         bool(json, "animationEnabled", defaults.animationEnabled),
                         number(json, "animationStrength", defaults.animationStrength),
                         bool(json, "mirrorVanillaSneak", defaults.mirrorVanillaSneak),
-                        bool(json, "forceOpaqueSkin", defaults.forceOpaqueSkin)
+                        bool(json, "forceOpaqueSkin", defaults.forceOpaqueSkin),
+                        bool(json, "firstPersonModelHands", defaults.firstPersonModelHands)
                 );
             }
         } catch (Exception ex) {
@@ -179,7 +181,8 @@ public record ArmatureSkinConfig(
                 animationEnabled,
                 animationStrength,
                 mirrorVanillaSneak,
-                forceOpaqueSkin
+                forceOpaqueSkin,
+                firstPersonModelHands
         );
     }
 
@@ -208,7 +211,8 @@ public record ArmatureSkinConfig(
                 animationEnabled,
                 animationStrength,
                 mirrorVanillaSneak,
-                forceOpaqueSkin
+                forceOpaqueSkin,
+                firstPersonModelHands
         );
     }
 
@@ -269,7 +273,8 @@ public record ArmatureSkinConfig(
                 animationEnabled,
                 animationStrength,
                 mirrorVanillaSneak,
-                forceOpaqueSkin
+                forceOpaqueSkin,
+                firstPersonModelHands
         );
     }
 
@@ -303,7 +308,30 @@ public record ArmatureSkinConfig(
                 animationEnabled,
                 animationStrength,
                 mirrorVanillaSneak,
-                forceOpaqueSkin
+                forceOpaqueSkin,
+                firstPersonModelHands
+        );
+    }
+
+    public ArmatureSkinConfig withFirstPersonModelHands(boolean enabled) {
+        return new ArmatureSkinConfig(
+                this.enabled,
+                localPlayerOnly,
+                selectedSkinId,
+                selectedSkinPath,
+                selectedTextureId,
+                selectedTexturePath,
+                disabledMeshKeys,
+                meshTextureAssignments,
+                fbxPath,
+                scale,
+                yOffset,
+                modelYawOffsetDegrees,
+                animationEnabled,
+                animationStrength,
+                mirrorVanillaSneak,
+                forceOpaqueSkin,
+                enabled
         );
     }
 }

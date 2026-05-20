@@ -6,33 +6,41 @@ import org.joml.Matrix4f;
 import java.util.Locale;
 
 final class ProceduralAnimator {
-    private static final float RELAXED_ARM_X = -1.35F;
-    private static final float MAX_WALK_SWING = 0.65F;
+    private static final float MAX_WALK_SWING = 0.42F;
 
     private ProceduralAnimator() {
     }
 
-    static Matrix4f animateBone(ArmatureModel.Bone bone, float limbAngle, float limbDistance, float age, float headYaw, float headPitch, float strength) {
+    static Matrix4f animateBone(ArmatureModel.Bone bone, float limbAngle, float limbDistance, float age, float headYaw, float headPitch, float strength, boolean crouching) {
         Matrix4f animated = new Matrix4f(bone.localBindTransform());
         String name = bone.name().toLowerCase(Locale.ROOT);
 
         float animationStrength = Math.max(0.0F, Math.min(strength, 1.5F));
-        float speed = Math.min(Math.max(limbDistance - 0.02F, 0.0F), 0.65F) * animationStrength * 4.0F;
+        float speed = Math.min(Math.max(limbDistance - 0.02F, 0.0F), 0.65F) * animationStrength * 2.4F;
         float phase = limbAngle * 0.6662F;
         float walk = clamp((float) Math.sin(phase) * speed, -MAX_WALK_SWING, MAX_WALK_SWING);
         float counterWalk = -walk;
         boolean left = isLeft(name);
         float sideWalk = left ? walk : counterWalk;
+        float crouch = crouching ? 1.0F : 0.0F;
 
-        if (isUpperLeg(name)) {
-            animated.rotateX(sideWalk);
+        if (isHead(name)) {
+            animated.rotateY(clamp((float) Math.toRadians(headYaw), -0.75F, 0.75F));
+            animated.rotateX(clamp((float) Math.toRadians(headPitch), -0.75F, 0.75F));
+        } else if (isNeck(name)) {
+            animated.rotateY(clamp((float) Math.toRadians(headYaw) * 0.35F, -0.35F, 0.35F));
+            animated.rotateX(clamp((float) Math.toRadians(headPitch) * 0.35F, -0.35F, 0.35F));
+        } else if (isSpine(name)) {
+            animated.rotateX(0.18F * crouch);
+        } else if (isUpperLeg(name)) {
+            animated.rotateX(sideWalk - 0.32F * crouch);
         } else if (isLowerLeg(name)) {
-            animated.rotateX(Math.max(0.0F, -sideWalk) * 0.65F);
+            animated.rotateX(Math.max(0.0F, -sideWalk) * 0.45F + 0.42F * crouch);
         } else if (isUpperArm(name)) {
-            animated.rotateX(RELAXED_ARM_X);
-            animated.rotateZ(-walk * 0.85F);
+            animated.rotateZ(left ? 1.15F : -1.15F);
+            animated.rotateX(sideWalk * 0.32F + 0.06F * crouch);
         } else if (isLowerArm(name)) {
-            animated.rotateZ(-walk * 0.15F);
+            animated.rotateX(sideWalk * 0.18F);
         }
 
         return animated;
@@ -72,6 +80,27 @@ final class ProceduralAnimator {
         }
         return startsWithAny(name, "lowerarm", "lower_arm", "forearm", "leftlowerarm", "rightlowerarm")
                 || containsAny(name, "j_bip_l_lowerarm", "j_bip_r_lowerarm");
+    }
+
+    private static boolean isHead(String name) {
+        return name.equals("head")
+                || name.endsWith("_head")
+                || name.endsWith(".head")
+                || containsAny(name, "j_bip_c_head", "mixamorig:head", "mixamorig_head");
+    }
+
+    private static boolean isNeck(String name) {
+        return name.equals("neck")
+                || name.endsWith("_neck")
+                || name.endsWith(".neck")
+                || containsAny(name, "j_bip_c_neck", "mixamorig:neck", "mixamorig_neck");
+    }
+
+    private static boolean isSpine(String name) {
+        return name.equals("spine")
+                || name.equals("chest")
+                || name.equals("upperchest")
+                || containsAny(name, "spine", "chest", "j_bip_c_spine", "j_bip_c_chest", "mixamorig:spine", "mixamorig_spine");
     }
 
     private static boolean isAuxiliaryArmBone(String name) {

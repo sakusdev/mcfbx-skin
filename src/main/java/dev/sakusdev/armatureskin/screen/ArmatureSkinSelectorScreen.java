@@ -23,12 +23,15 @@ public final class ArmatureSkinSelectorScreen extends Screen {
     private static final Component SELECTED = Component.translatable("screen.armature_fbx_skin.selector.selected");
     private static final Component RELOAD = Component.translatable("screen.armature_fbx_skin.selector.reload");
     private static final Component OPEN_FOLDER = Component.translatable("screen.armature_fbx_skin.selector.open_folder");
+    private static final Component FIRST_PERSON_HANDS_ON = Component.translatable("screen.armature_fbx_skin.selector.first_person_hands_on");
+    private static final Component FIRST_PERSON_HANDS_OFF = Component.translatable("screen.armature_fbx_skin.selector.first_person_hands_off");
     private static final Component BACK = Component.translatable("gui.back");
     private static final Component LOADED = Component.translatable("screen.armature_fbx_skin.selector.loaded");
     private static final Component RELOADED = Component.translatable("screen.armature_fbx_skin.selector.reloaded");
     private static final Component LOAD_FAILED = Component.translatable("screen.armature_fbx_skin.selector.load_failed");
     private static final Component PART_ON = Component.translatable("screen.armature_fbx_skin.selector.part_on");
     private static final Component PART_OFF = Component.translatable("screen.armature_fbx_skin.selector.part_off");
+    private static final Component TEXTURE_ASSIGNED = Component.translatable("screen.armature_fbx_skin.selector.texture_assigned");
 
     private static final int TOP = 38;
     private static final int ROW_HEIGHT = 28;
@@ -46,6 +49,7 @@ public final class ArmatureSkinSelectorScreen extends Screen {
     private double skinScroll;
     private double partScroll;
     private Component statusMessage = Component.empty();
+    private Button firstPersonHandsButton;
 
     public ArmatureSkinSelectorScreen(Screen parent, ArmatureSkinSelectionApi api) {
         super(TITLE);
@@ -55,14 +59,17 @@ public final class ArmatureSkinSelectorScreen extends Screen {
 
     @Override
     protected void init() {
+        firstPersonHandsButton = addRenderableWidget(Button.builder(firstPersonHandsLabel(), button -> toggleFirstPersonHands())
+                .bounds(width / 2 - 206, height - 24, 96, 20)
+                .build());
         addRenderableWidget(Button.builder(RELOAD, button -> reloadAll())
-                .bounds(width / 2 - 154, height - 24, 96, 20)
+                .bounds(width / 2 - 102, height - 24, 86, 20)
                 .build());
         addRenderableWidget(Button.builder(OPEN_FOLDER, button -> openFolder())
-                .bounds(width / 2 - 48, height - 24, 96, 20)
+                .bounds(width / 2 - 6, height - 24, 86, 20)
                 .build());
         addRenderableWidget(Button.builder(BACK, button -> onClose())
-                .bounds(width / 2 + 58, height - 24, 96, 20)
+                .bounds(width / 2 + 90, height - 24, 86, 20)
                 .build());
         refresh(false);
     }
@@ -108,6 +115,13 @@ public final class ArmatureSkinSelectorScreen extends Screen {
             int index = rowAt(mouseY, partsTop(), partScroll);
             if (index >= 0 && index < parts.size()) {
                 togglePart(parts.get(index));
+                return true;
+            }
+        }
+        if (button == 1 && inPartsPanel(mouseX, mouseY)) {
+            int index = rowAt(mouseY, partsTop(), partScroll);
+            if (index >= 0 && index < parts.size()) {
+                cyclePartTexture(parts.get(index));
                 return true;
             }
         }
@@ -242,6 +256,18 @@ public final class ArmatureSkinSelectorScreen extends Screen {
         }
     }
 
+    private void toggleFirstPersonHands() {
+        boolean enabled = !api.firstPersonModelHandsEnabled();
+        api.setFirstPersonModelHandsEnabled(enabled);
+        if (firstPersonHandsButton != null) {
+            firstPersonHandsButton.setMessage(firstPersonHandsLabel());
+        }
+    }
+
+    private Component firstPersonHandsLabel() {
+        return api.firstPersonModelHandsEnabled() ? FIRST_PERSON_HANDS_ON : FIRST_PERSON_HANDS_OFF;
+    }
+
     private void selectSkin(ArmatureSkinSelectionApi.SkinEntry skin) {
         try {
             api.selectSkin(skin);
@@ -267,6 +293,39 @@ public final class ArmatureSkinSelectorScreen extends Screen {
             parts.clear();
             parts.addAll(api.listParts(selected.get()));
             statusMessage = Component.empty().append(part.hidden() ? PART_ON : PART_OFF).append(" ").append(part.displayName());
+        } catch (RuntimeException ex) {
+            statusMessage = Component.empty().append(LOAD_FAILED).append(": ").append(ex.getMessage());
+        }
+    }
+
+    private void cyclePartTexture(ArmatureSkinSelectionApi.PartEntry part) {
+        Optional<ArmatureSkinSelectionApi.SkinEntry> selected = skins.stream()
+                .filter(skin -> skin.id().equals(selectedSkinId))
+                .findFirst();
+        if (selected.isEmpty()) {
+            return;
+        }
+        try {
+            List<ArmatureSkinSelectionApi.TextureEntry> textures = api.listTextures(selected.get()).stream()
+                    .filter(texture -> texture.path() != null)
+                    .toList();
+            if (textures.isEmpty()) {
+                api.openTexturesFolder(selected.get());
+                return;
+            }
+            int currentIndex = -1;
+            for (int i = 0; i < textures.size(); i++) {
+                if (textures.get(i).id().equalsIgnoreCase(part.textureId())) {
+                    currentIndex = i;
+                    break;
+                }
+            }
+            int nextIndex = (currentIndex + 1) % textures.size();
+            ArmatureSkinSelectionApi.TextureEntry texture = textures.get(nextIndex);
+            api.assignTextureToMesh(selected.get(), part.key(), texture);
+            parts.clear();
+            parts.addAll(api.listParts(selected.get()));
+            statusMessage = Component.empty().append(TEXTURE_ASSIGNED).append(" ").append(part.displayName()).append(" -> ").append(texture.displayName());
         } catch (RuntimeException ex) {
             statusMessage = Component.empty().append(LOAD_FAILED).append(": ").append(ex.getMessage());
         }

@@ -34,6 +34,8 @@ final class AssimpFbxLoader {
             | Assimp.aiProcess_LimitBoneWeights
             | Assimp.aiProcess_ValidateDataStructure
             | Assimp.aiProcess_FindInvalidData
+            | Assimp.aiProcess_GenSmoothNormals
+            | Assimp.aiProcess_ImproveCacheLocality
             | Assimp.aiProcess_PopulateArmatureData
             | Assimp.aiProcess_SortByPType
             | Assimp.aiProcess_FlipUVs;
@@ -72,11 +74,12 @@ final class AssimpFbxLoader {
         boneIndexByName = orderBones(boneIndexByName.keySet(), nodes);
 
         List<ArmatureModel.Bone> bones = buildBones(boneIndexByName, inverseBindByBone, nodes, rootInverse);
+        Matrix4f[] bindSkinMatrices = buildBindSkinMatrices(bones);
         List<MaterialInfo> materials = readMaterials(scene);
         List<ArmatureModel.Mesh> meshes = new ArrayList<>();
         for (int meshIndex = 0; meshIndex < scene.mNumMeshes(); meshIndex++) {
             AIMesh mesh = AIMesh.create(sceneMeshes.get(meshIndex));
-            ArmatureModel.Mesh converted = convertMesh(mesh, meshIndex, materialInfo(materials, mesh.mMaterialIndex()), boneIndexByName, nodes.meshTransform(meshIndex, rootInverse));
+            ArmatureModel.Mesh converted = convertMesh(mesh, meshIndex, materialInfo(materials, mesh.mMaterialIndex()), boneIndexByName, nodes.meshTransform(meshIndex, rootInverse), bindSkinMatrices);
             if (!converted.vertices().isEmpty() && converted.indices().length > 0) {
                 meshes.add(converted);
             }
@@ -155,36 +158,44 @@ final class AssimpFbxLoader {
         return List.of(bones);
     }
 
-    private static ArmatureModel.Mesh convertMesh(AIMesh mesh, int meshIndex, MaterialInfo material, Map<String, Integer> boneIndexByName, Matrix4f staticMeshTransform) {
+    private static Matrix4f[] buildBindSkinMatrices(List<ArmatureModel.Bone> bones) {
+        Matrix4f[] global = new Matrix4f[bones.size()];
+        Matrix4f[] skin = new Matrix4f[bones.size()];
+        for (int i = 0; i < bones.size(); i++) {
+            ArmatureModel.Bone bone = bones.get(i);
+            if (bone.parentIndex() >= 0) {
+                global[i] = new Matrix4f(global[bone.parentIndex()]).mul(bone.localBindTransform());
+            } else {
+                global[i] = new Matrix4f(bone.localBindTransform());
+            }
+            skin[i] = new Matrix4f(global[i]).mul(bone.inverseBindTransform());
+        }
+        return skin;
+    }
+
+    private static ArmatureModel.Mesh convertMesh(AIMesh mesh, int meshIndex, MaterialInfo material, Map<String, Integer> boneIndexByName, Matrix4f meshToModelTransform, Matrix4f[] bindSkinMatrices) {
         int vertexCount = mesh.mNumVertices();
         AIVector3D.Buffer positions = mesh.mVertices();
         if (positions == null || vertexCount <= 0) {
-            return new ArmatureModel.Mesh("assimp:" + meshIndex, name(mesh.mName()), material.name(), material.textureHint(), List.of(), new int[0]);
+            return new ArmatureModel.Mesh("assimp:" + meshIndex, name(mesh.mName()), material.name(), material.textureHint(), List.of(), new int[0], meshToModelTransform, ArmatureModel.Bounds.invalid());
         }
 
         List<VertexWeight>[] weightsByVertex = collectWeights(mesh, vertexCount, boneIndexByName);
-        boolean skinnedMesh = hasWeights(weightsByVertex);
         AIVector3D.Buffer texCoords = mesh.mTextureCoords(0);
         AIVector3D.Buffer normals = mesh.mNormals();
         List<ArmatureModel.Vertex> vertices = new ArrayList<>(vertexCount);
         for (int vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++) {
             AIVector3D position = positions.get(vertexIndex);
-            Vector3f bakedPosition = new Vector3f(position.x(), position.y(), position.z());
-            if (!skinnedMesh) {
-                bakedPosition.mulPosition(staticMeshTransform);
-            }
+            Vector3f meshPosition = new Vector3f(position.x(), position.y(), position.z());
 
-            Vector3f bakedNormal = new Vector3f(0.0F, 1.0F, 0.0F);
+            Vector3f meshNormal = new Vector3f(0.0F, 1.0F, 0.0F);
             if (normals != null && vertexIndex < normals.limit()) {
                 AIVector3D normal = normals.get(vertexIndex);
-                bakedNormal.set(normal.x(), normal.y(), normal.z());
-                if (!skinnedMesh) {
-                    bakedNormal.mulDirection(staticMeshTransform);
-                }
-                if (bakedNormal.lengthSquared() > 0.000001F) {
-                    bakedNormal.normalize();
+                meshNormal.set(normal.x(), normal.y(), normal.z());
+                if (meshNormal.lengthSquared() > 0.000001F) {
+                    meshNormal.normalize();
                 } else {
-                    bakedNormal.set(0.0F, 1.0F, 0.0F);
+                    meshNormal.set(0.0F, 1.0F, 0.0F);
                 }
             }
 
@@ -203,7 +214,7 @@ final class AssimpFbxLoader {
                 boneIndices[i] = normalized.get(i).boneIndex();
                 boneWeights[i] = normalized.get(i).weight();
             }
-            vertices.add(new ArmatureModel.Vertex(bakedPosition.x(), bakedPosition.y(), bakedPosition.z(), u, v, boneIndices, boneWeights, bakedNormal.x(), bakedNormal.y(), bakedNormal.z()));
+            vertices.add(new ArmatureModel.Vertex(meshPosition.x(), meshPosition.y(), meshPosition.z(), u, v, boneIndices, boneWeights, meshNormal.x(), meshNormal.y(), meshNormal.z()));
         }
 
         List<Integer> indices = new ArrayList<>(mesh.mNumFaces() * 3);
@@ -226,7 +237,8 @@ final class AssimpFbxLoader {
 
         String meshName = name(mesh.mName());
         String key = "assimp:" + meshIndex + "|mesh:" + normalizeKey(meshName) + "|material:" + normalizeKey(material.name());
-        return new ArmatureModel.Mesh(key, meshName, material.name(), material.textureHint(), vertices, indices.stream().mapToInt(Integer::intValue).toArray());
+        ArmatureModel.Bounds bindBounds = bindBounds(vertices, bindSkinMatrices, meshToModelTransform);
+        return new ArmatureModel.Mesh(key, meshName, material.name(), material.textureHint(), vertices, indices.stream().mapToInt(Integer::intValue).toArray(), meshToModelTransform, bindBounds);
     }
 
     @SuppressWarnings("unchecked")
@@ -275,6 +287,10 @@ final class AssimpFbxLoader {
         if (weights == null || weights.isEmpty()) {
             return List.of();
         }
+        float originalTotal = 0.0F;
+        for (VertexWeight weight : weights) {
+            originalTotal += weight.weight();
+        }
         List<VertexWeight> top = weights.stream()
                 .sorted((a, b) -> Float.compare(b.weight(), a.weight()))
                 .limit(4)
@@ -286,11 +302,50 @@ final class AssimpFbxLoader {
         if (total <= 0.0F) {
             return List.of();
         }
+        if (originalTotal < 0.999F && total <= 1.0F) {
+            return top;
+        }
         List<VertexWeight> normalized = new ArrayList<>(top.size());
         for (VertexWeight weight : top) {
             normalized.add(new VertexWeight(weight.boneIndex(), weight.weight() / total));
         }
         return normalized;
+    }
+
+    private static ArmatureModel.Bounds bindBounds(List<ArmatureModel.Vertex> vertices, Matrix4f[] bindSkinMatrices, Matrix4f meshToModelTransform) {
+        ArmatureModel.Bounds bounds = ArmatureModel.Bounds.invalid();
+        for (ArmatureModel.Vertex vertex : vertices) {
+            bounds = bounds.include(skinPosition(vertex, bindSkinMatrices, meshToModelTransform));
+        }
+        return bounds;
+    }
+
+    private static Vector3f skinPosition(ArmatureModel.Vertex vertex, Matrix4f[] skinMatrices, Matrix4f meshToModelTransform) {
+        Vector3f source = new Vector3f(vertex.x(), vertex.y(), vertex.z());
+        Vector3f fallback = new Vector3f(source).mulPosition(meshToModelTransform == null ? new Matrix4f() : meshToModelTransform);
+        int[] boneIndices = vertex.boneIndices();
+        float[] weights = vertex.weights();
+        if (boneIndices.length == 0 || weights.length == 0 || skinMatrices.length == 0) {
+            return fallback;
+        }
+        Vector3f result = new Vector3f();
+        float appliedWeight = 0.0F;
+        for (int i = 0; i < boneIndices.length && i < weights.length; i++) {
+            int boneIndex = boneIndices[i];
+            float weight = weights[i];
+            if (boneIndex < 0 || boneIndex >= skinMatrices.length || weight <= 0.0F) {
+                continue;
+            }
+            result.add(new Vector3f(source).mulPosition(skinMatrices[boneIndex]).mul(weight));
+            appliedWeight += weight;
+        }
+        if (appliedWeight <= 0.0001F) {
+            return fallback;
+        }
+        if (appliedWeight < 0.999F) {
+            result.fma(1.0F - appliedWeight, fallback);
+        }
+        return result;
     }
 
     private static List<MaterialInfo> readMaterials(AIScene scene) {
@@ -339,7 +394,7 @@ final class AssimpFbxLoader {
         return new MaterialInfo("material_" + materialIndex, "");
     }
 
-    private static Matrix4f toJoml(AIMatrix4x4 matrix) {
+    static Matrix4f toJoml(AIMatrix4x4 matrix) {
         if (matrix == null) {
             return new Matrix4f();
         }

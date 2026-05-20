@@ -18,6 +18,7 @@ import net.minecraft.resources.ResourceLocation;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -65,6 +66,47 @@ public final class ArmatureSkinRenderer {
         return renderModel(current, player, yaw, tickDelta, matrices, buffers, light, player.isCrouching());
     }
 
+    public boolean renderFirstPersonModelHand(AbstractClientPlayer player, boolean rightHand, float swingProgress, float equipProgress, float tickDelta, PoseStack matrices, MultiBufferSource buffers, int light) {
+        ArmatureModel current = model;
+        if (current == null || !config.enabled() || !config.firstPersonModelHands() || player == null || player != Minecraft.getInstance().player) {
+            return false;
+        }
+
+        ArmatureModel.Bounds armBounds = boundsOfMatching(current, config, rightHand ? ArmatureSkinRenderer::isRightArmMesh : ArmatureSkinRenderer::isLeftArmMesh);
+        if (!armBounds.valid()) {
+            return false;
+        }
+
+        matrices.pushPose();
+        try {
+            float side = rightHand ? 1.0F : -1.0F;
+            float swing = (float) Math.sin(Math.sqrt(swingProgress) * Math.PI);
+            matrices.translate(side * (0.48F - equipProgress * 0.18F), -0.48F + swing * 0.08F, -0.72F - swing * 0.08F);
+            matrices.mulPose(Axis.YP.rotationDegrees(side * (18.0F + swing * 10.0F)));
+            matrices.mulPose(Axis.XP.rotationDegrees(-22.0F - swing * 18.0F));
+            matrices.mulPose(Axis.ZP.rotationDegrees(side * (8.0F + swing * 7.0F)));
+
+            float scale = 0.62F / Math.max(0.001F, armBounds.height());
+            matrices.scale(scale, scale, scale);
+            matrices.translate(-armBounds.centerX(), -armBounds.centerY(), -armBounds.centerZ());
+
+            Matrix4f[] skinMatrices = buildSkinMatrices(current, player, tickDelta, player.isCrouching());
+            PoseStack.Pose entry = matrices.last();
+            boolean rendered = false;
+            for (ArmatureModel.Mesh mesh : current.meshes()) {
+                if (config.isMeshDisabled(mesh.key()) || !(rightHand ? isRightArmMesh(mesh) : isLeftArmMesh(mesh))) {
+                    continue;
+                }
+                SkinRenderTexture renderTexture = renderTextureForMesh(mesh, player);
+                VertexConsumer consumer = buffers.getBuffer(renderTexture.renderType());
+                rendered |= drawMesh(consumer, entry, mesh, skinMesh(mesh, skinMatrices), light);
+            }
+            return rendered;
+        } finally {
+            matrices.popPose();
+        }
+    }
+
     public boolean renderGuiPreview(GuiGraphics guiGraphics, int x, int y, int width, int height, float partialTick) {
         ArmatureModel current = model;
         if (current == null || !config.enabled() || width <= 8 || height <= 8) {
@@ -100,7 +142,7 @@ public final class ArmatureSkinRenderer {
         try {
             matrices.mulPose(Axis.YP.rotationDegrees(config.modelYawOffsetDegrees() - yaw));
             matrices.translate(0.0F, config.yOffset(), 0.0F);
-            Bounds bounds = Bounds.of(current, config);
+            ArmatureModel.Bounds bounds = boundsOf(current, config);
             if (!bounds.valid()) {
                 return false;
             }
@@ -113,34 +155,37 @@ public final class ArmatureSkinRenderer {
                 matrices.translate(0.0F, -0.25F / renderScale, 0.0F);
             }
 
-            Matrix4f[] skinMatrices = buildSkinMatrices(current, player, tickDelta);
+            Matrix4f[] skinMatrices = buildSkinMatrices(current, player, tickDelta, crouching);
             PoseStack.Pose entry = matrices.last();
 
+            List<RenderMesh> primaryMeshes = new ArrayList<>();
+            List<RenderMesh> lateMeshes = new ArrayList<>();
             for (ArmatureModel.Mesh mesh : current.meshes()) {
                 if (config.isMeshDisabled(mesh.key())) {
                     continue;
                 }
                 SkinRenderTexture renderTexture = textureForMesh(mesh, player);
-                RenderType renderType = renderTexture.renderType();
-                VertexConsumer consumer = buffers.getBuffer(renderType);
-                int[] indices = mesh.indices();
-                List<ArmatureModel.Vertex> meshVertices = mesh.vertices();
-                for (int i = 0; i + 2 < indices.length; i += 3) {
-                    emitTriangle(
-                            consumer,
-                            entry,
-                            meshVertices.get(indices[i]),
-                            meshVertices.get(indices[i + 1]),
-                            meshVertices.get(indices[i + 2]),
-                            skinMatrices,
-                            light
-                    );
+                boolean latePass = isLateTransparencyMesh(mesh) || renderTexture.alphaMode() == SkinRenderTexture.AlphaMode.TRANSLUCENT;
+                RenderMesh renderMesh = new RenderMesh(mesh, latePass ? renderTexture.withAlphaMode(SkinRenderTexture.AlphaMode.TRANSLUCENT) : renderTexture, skinMesh(mesh, skinMatrices));
+                if (latePass) {
+                    lateMeshes.add(renderMesh);
+                } else {
+                    primaryMeshes.add(renderMesh);
                 }
             }
+            drawMeshes(primaryMeshes, entry, buffers, light);
+            drawMeshes(lateMeshes, entry, buffers, light);
         } finally {
             matrices.popPose();
         }
         return true;
+    }
+
+    private SkinRenderTexture renderTextureForMesh(ArmatureModel.Mesh mesh, AbstractClientPlayer player) {
+        SkinRenderTexture renderTexture = textureForMesh(mesh, player);
+        return isLateTransparencyMesh(mesh) || renderTexture.alphaMode() == SkinRenderTexture.AlphaMode.TRANSLUCENT
+                ? renderTexture.withAlphaMode(SkinRenderTexture.AlphaMode.TRANSLUCENT)
+                : renderTexture;
     }
 
     private SkinRenderTexture textureForMesh(ArmatureModel.Mesh mesh, AbstractClientPlayer player) {
@@ -165,7 +210,7 @@ public final class ArmatureSkinRenderer {
         return new SkinRenderTexture(ResourceLocation.fromNamespaceAndPath("minecraft", "textures/misc/white.png"), SkinRenderTexture.AlphaMode.OPAQUE);
     }
 
-    private Matrix4f[] buildSkinMatrices(ArmatureModel current, AbstractClientPlayer player, float tickDelta) {
+    private Matrix4f[] buildSkinMatrices(ArmatureModel current, AbstractClientPlayer player, float tickDelta, boolean crouching) {
         List<ArmatureModel.Bone> bones = current.bones();
         Matrix4f[] global = new Matrix4f[bones.size()];
         Matrix4f[] skin = new Matrix4f[bones.size()];
@@ -178,7 +223,7 @@ public final class ArmatureSkinRenderer {
 
         for (int i = 0; i < bones.size(); i++) {
             ArmatureModel.Bone bone = bones.get(i);
-            Matrix4f local = ProceduralAnimator.animateBone(bone, limbAngle, limbDistance, age, headYaw, headPitch, config.animationStrength());
+            Matrix4f local = ProceduralAnimator.animateBone(bone, limbAngle, limbDistance, age, headYaw, headPitch, config.animationStrength(), crouching);
             if (bone.parentIndex() >= 0) {
                 global[i] = new Matrix4f(global[bone.parentIndex()]).mul(local);
             } else {
@@ -194,20 +239,59 @@ public final class ArmatureSkinRenderer {
         return player == null ? tickDelta : player.tickCount + tickDelta;
     }
 
-    private void emitTriangle(VertexConsumer consumer, PoseStack.Pose entry, ArmatureModel.Vertex a, ArmatureModel.Vertex b, ArmatureModel.Vertex c, Matrix4f[] skinMatrices, int light) {
-        Vector3f positionA = skin(a, skinMatrices);
-        Vector3f positionB = skin(b, skinMatrices);
-        Vector3f positionC = skin(c, skinMatrices);
-        Vector3f faceNormal = new Vector3f(positionB).sub(positionA).cross(new Vector3f(positionC).sub(positionA));
-        if (faceNormal.lengthSquared() > 0.000001F) {
-            faceNormal.normalize();
-        } else {
-            faceNormal.set(0.0F, 1.0F, 0.0F);
+    private void drawMeshes(List<RenderMesh> meshes, PoseStack.Pose entry, MultiBufferSource buffers, int light) {
+        for (RenderMesh mesh : meshes) {
+            VertexConsumer consumer = buffers.getBuffer(mesh.texture().renderType());
+            drawMesh(consumer, entry, mesh.mesh(), mesh.skinned(), light);
         }
+    }
 
-        emitVertex(consumer, entry, a, positionA, skinNormal(a, faceNormal, skinMatrices), light);
-        emitVertex(consumer, entry, b, positionB, skinNormal(b, faceNormal, skinMatrices), light);
-        emitVertex(consumer, entry, c, positionC, skinNormal(c, faceNormal, skinMatrices), light);
+    private boolean drawMesh(VertexConsumer consumer, PoseStack.Pose entry, ArmatureModel.Mesh mesh, SkinnedMesh skinned, int light) {
+        boolean emitted = false;
+        int[] indices = mesh.indices();
+        List<ArmatureModel.Vertex> vertices = mesh.vertices();
+        for (int i = 0; i + 2 < indices.length; i += 3) {
+            int ia = indices[i];
+            int ib = indices[i + 1];
+            int ic = indices[i + 2];
+            if (ia < 0 || ib < 0 || ic < 0 || ia >= vertices.size() || ib >= vertices.size() || ic >= vertices.size()) {
+                continue;
+            }
+            if (isBrokenTriangle(skinned.positions()[ia], skinned.positions()[ib], skinned.positions()[ic])) {
+                continue;
+            }
+            emitVertex(consumer, entry, vertices.get(ia), skinned.positions()[ia], skinned.normals()[ia], light);
+            emitVertex(consumer, entry, vertices.get(ib), skinned.positions()[ib], skinned.normals()[ib], light);
+            emitVertex(consumer, entry, vertices.get(ic), skinned.positions()[ic], skinned.normals()[ic], light);
+            emitted = true;
+        }
+        return emitted;
+    }
+
+    private SkinnedMesh skinMesh(ArmatureModel.Mesh mesh, Matrix4f[] skinMatrices) {
+        List<ArmatureModel.Vertex> vertices = mesh.vertices();
+        Vector3f[] positions = new Vector3f[vertices.size()];
+        Vector3f[] normals = new Vector3f[vertices.size()];
+        ArmatureModel.Bounds bounds = ArmatureModel.Bounds.invalid();
+        for (int i = 0; i < vertices.size(); i++) {
+            ArmatureModel.Vertex vertex = vertices.get(i);
+            positions[i] = skinPosition(vertex, mesh.meshToModelTransform(), skinMatrices);
+            normals[i] = skinNormal(vertex, mesh.meshToModelTransform(), skinMatrices);
+            bounds = bounds.include(positions[i]);
+        }
+        return new SkinnedMesh(positions, normals, bounds);
+    }
+
+    private boolean isBrokenTriangle(Vector3f a, Vector3f b, Vector3f c) {
+        if (!isFinite(a) || !isFinite(b) || !isFinite(c)) {
+            return true;
+        }
+        float doubleArea = new Vector3f(b).sub(a).cross(new Vector3f(c).sub(a)).length();
+        return doubleArea <= 0.0000001F;
+    }
+
+    private boolean isFinite(Vector3f vector) {
+        return vector != null && Float.isFinite(vector.x()) && Float.isFinite(vector.y()) && Float.isFinite(vector.z());
     }
 
     private void emitVertex(VertexConsumer consumer, PoseStack.Pose entry, ArmatureModel.Vertex vertex, Vector3f position, Vector3f normal, int light) {
@@ -221,15 +305,16 @@ public final class ArmatureSkinRenderer {
                 .setNormal(entry, normal.x(), normal.y(), normal.z());
     }
 
-    private Vector3f skin(ArmatureModel.Vertex vertex, Matrix4f[] skinMatrices) {
+    private Vector3f skinPosition(ArmatureModel.Vertex vertex, Matrix4f meshToModelTransform, Matrix4f[] skinMatrices) {
         int[] boneIndices = vertex.boneIndices();
         float[] weights = vertex.weights();
+        Vector3f source = new Vector3f(vertex.x(), vertex.y(), vertex.z());
+        Vector3f fallback = new Vector3f(source).mulPosition(meshToModelTransform == null ? new Matrix4f() : meshToModelTransform);
         if (boneIndices.length == 0 || skinMatrices.length == 0) {
-            return new Vector3f(vertex.x(), vertex.y(), vertex.z());
+            return fallback;
         }
 
         Vector3f result = new Vector3f();
-        Vector3f source = new Vector3f(vertex.x(), vertex.y(), vertex.z());
         float appliedWeight = 0.0F;
         for (int i = 0; i < boneIndices.length && i < weights.length; i++) {
             int boneIndex = boneIndices[i];
@@ -241,25 +326,31 @@ public final class ArmatureSkinRenderer {
             appliedWeight += weights[i];
         }
         if (appliedWeight <= 0.0001F) {
-            return source;
+            return fallback;
         }
         if (appliedWeight < 0.999F) {
-            result.fma(1.0F - appliedWeight, source);
+            result.fma(1.0F - appliedWeight, fallback);
         }
         return result;
     }
 
-    private Vector3f skinNormal(ArmatureModel.Vertex vertex, Vector3f fallback, Matrix4f[] skinMatrices) {
+    private Vector3f skinNormal(ArmatureModel.Vertex vertex, Matrix4f meshToModelTransform, Matrix4f[] skinMatrices) {
         Vector3f source = new Vector3f(vertex.nx(), vertex.ny(), vertex.nz());
         if (source.lengthSquared() <= 0.000001F) {
-            return new Vector3f(fallback);
+            source.set(0.0F, 1.0F, 0.0F);
         }
         source.normalize();
+        Vector3f fallback = new Vector3f(source).mulDirection(meshToModelTransform == null ? new Matrix4f() : meshToModelTransform);
+        if (fallback.lengthSquared() <= 0.000001F) {
+            fallback.set(0.0F, 1.0F, 0.0F);
+        } else {
+            fallback.normalize();
+        }
 
         int[] boneIndices = vertex.boneIndices();
         float[] weights = vertex.weights();
         if (boneIndices.length == 0 || skinMatrices.length == 0) {
-            return source;
+            return fallback;
         }
 
         Vector3f result = new Vector3f();
@@ -274,10 +365,10 @@ public final class ArmatureSkinRenderer {
             appliedWeight += weights[i];
         }
         if (appliedWeight <= 0.0001F) {
-            return source;
+            return fallback;
         }
         if (appliedWeight < 0.999F) {
-            result.fma(1.0F - appliedWeight, source);
+            result.fma(1.0F - appliedWeight, fallback);
         }
         if (result.lengthSquared() <= 0.000001F) {
             return new Vector3f(fallback);
@@ -292,46 +383,57 @@ public final class ArmatureSkinRenderer {
         return materialName.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9._-]+", "_");
     }
 
-    private record Bounds(float minX, float minY, float minZ, float maxX, float maxY, float maxZ) {
-        static Bounds of(ArmatureModel model, ArmatureSkinConfig config) {
-            float minX = Float.POSITIVE_INFINITY;
-            float minY = Float.POSITIVE_INFINITY;
-            float minZ = Float.POSITIVE_INFINITY;
-            float maxX = Float.NEGATIVE_INFINITY;
-            float maxY = Float.NEGATIVE_INFINITY;
-            float maxZ = Float.NEGATIVE_INFINITY;
-            for (ArmatureModel.Mesh mesh : model.meshes()) {
-                if (config.isMeshDisabled(mesh.key())) {
-                    continue;
-                }
-                for (ArmatureModel.Vertex vertex : mesh.vertices()) {
-                    minX = Math.min(minX, vertex.x());
-                    minY = Math.min(minY, vertex.y());
-                    minZ = Math.min(minZ, vertex.z());
-                    maxX = Math.max(maxX, vertex.x());
-                    maxY = Math.max(maxY, vertex.y());
-                    maxZ = Math.max(maxZ, vertex.z());
-                }
+    private static boolean isLateTransparencyMesh(ArmatureModel.Mesh mesh) {
+        String text = (mesh.materialName() + " " + mesh.textureHint() + " " + mesh.name()).toLowerCase(java.util.Locale.ROOT);
+        return text.contains("alpha") || text.contains("outline") || text.contains("transparent") || text.contains("hair");
+    }
+
+    private static boolean isLeftArmMesh(ArmatureModel.Mesh mesh) {
+        String key = armMatchText(mesh);
+        return containsAny(key, "leftarm", "left_arm", "left hand", "lefthand", "_l_", ".l.", "-l-", "arm_l", "hand_l", "j_bip_l");
+    }
+
+    private static boolean isRightArmMesh(ArmatureModel.Mesh mesh) {
+        String key = armMatchText(mesh);
+        return containsAny(key, "rightarm", "right_arm", "right hand", "righthand", "_r_", ".r.", "-r-", "arm_r", "hand_r", "j_bip_r");
+    }
+
+    private static String armMatchText(ArmatureModel.Mesh mesh) {
+        return (mesh.key() + " " + mesh.name() + " " + mesh.displayName()).toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private static boolean containsAny(String value, String... tokens) {
+        for (String token : tokens) {
+            if (value.contains(token)) {
+                return true;
             }
-            return new Bounds(minX, minY, minZ, maxX, maxY, maxZ);
         }
+        return false;
+    }
 
-        boolean valid() {
-            return Float.isFinite(minX) && Float.isFinite(minY) && Float.isFinite(minZ)
-                    && Float.isFinite(maxX) && Float.isFinite(maxY) && Float.isFinite(maxZ)
-                    && height() > 0.0F;
+    private static ArmatureModel.Bounds boundsOf(ArmatureModel model, ArmatureSkinConfig config) {
+        ArmatureModel.Bounds bounds = ArmatureModel.Bounds.invalid();
+        for (ArmatureModel.Mesh mesh : model.meshes()) {
+            if (!config.isMeshDisabled(mesh.key())) {
+                bounds = bounds.union(mesh.bindBounds());
+            }
         }
+        return bounds;
+    }
 
-        float height() {
-            return maxY - minY;
+    private static ArmatureModel.Bounds boundsOfMatching(ArmatureModel model, ArmatureSkinConfig config, java.util.function.Predicate<ArmatureModel.Mesh> predicate) {
+        ArmatureModel.Bounds bounds = ArmatureModel.Bounds.invalid();
+        for (ArmatureModel.Mesh mesh : model.meshes()) {
+            if (!config.isMeshDisabled(mesh.key()) && predicate.test(mesh)) {
+                bounds = bounds.union(mesh.bindBounds());
+            }
         }
+        return bounds;
+    }
 
-        float centerX() {
-            return (minX + maxX) * 0.5F;
-        }
+    private record RenderMesh(ArmatureModel.Mesh mesh, SkinRenderTexture texture, SkinnedMesh skinned) {
+    }
 
-        float centerZ() {
-            return (minZ + maxZ) * 0.5F;
-        }
+    private record SkinnedMesh(Vector3f[] positions, Vector3f[] normals, ArmatureModel.Bounds bounds) {
     }
 }

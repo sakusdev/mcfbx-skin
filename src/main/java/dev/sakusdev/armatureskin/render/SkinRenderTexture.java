@@ -15,6 +15,10 @@ public record SkinRenderTexture(ResourceLocation location, AlphaMode alphaMode) 
         };
     }
 
+    public SkinRenderTexture withAlphaMode(AlphaMode mode) {
+        return new SkinRenderTexture(location, mode);
+    }
+
     public enum AlphaMode {
         OPAQUE,
         CUTOUT,

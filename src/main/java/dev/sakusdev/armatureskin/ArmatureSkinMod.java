@@ -20,11 +20,15 @@ import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.HumanoidArm;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
+import net.neoforged.neoforge.client.event.RenderArmEvent;
+import net.neoforged.neoforge.client.event.RenderHandEvent;
 import net.neoforged.neoforge.client.event.RenderPlayerEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.lwjgl.glfw.GLFW;
@@ -79,6 +83,8 @@ public final class ArmatureSkinMod {
         modBus.addListener(this::registerKeys);
         NeoForge.EVENT_BUS.addListener(this::onClientTick);
         NeoForge.EVENT_BUS.addListener(this::onRenderPlayer);
+        NeoForge.EVENT_BUS.addListener(this::onRenderHand);
+        NeoForge.EVENT_BUS.addListener(this::onRenderArm);
     }
 
     public static ArmatureSkinRenderer renderer() {
@@ -139,6 +145,7 @@ public final class ArmatureSkinMod {
             return;
         }
         if (debugCaptureStage == 1 && --debugCaptureTicks <= 0) {
+            client.setScreen(null);
             grabDebugScreenshot(client, "armature-fbx-debug-front.png");
             client.options.setCameraType(CameraType.THIRD_PERSON_BACK);
             debugCaptureTicks = 40;
@@ -146,6 +153,7 @@ public final class ArmatureSkinMod {
             return;
         }
         if (debugCaptureStage == 2 && --debugCaptureTicks <= 0) {
+            client.setScreen(null);
             grabDebugScreenshot(client, "armature-fbx-debug-back.png");
             debugCaptureStage = 3;
             debugCaptureTicks = 20;
@@ -176,11 +184,40 @@ public final class ArmatureSkinMod {
 
     private void onRenderPlayer(RenderPlayerEvent.Pre event) {
         if (event.getEntity() instanceof net.minecraft.client.player.AbstractClientPlayer player) {
-            float bodyYaw = Mth.rotLerp(event.getPartialTick(), player.yBodyRotO, player.yBodyRot);
+            Minecraft client = Minecraft.getInstance();
+            float bodyYaw = player == client.player
+                    ? Mth.rotLerp(event.getPartialTick(), player.yRotO, player.getYRot())
+                    : Mth.rotLerp(event.getPartialTick(), player.yBodyRotO, player.yBodyRot);
             if (RENDERER.renderPlayer(player, bodyYaw, event.getPartialTick(), event.getPoseStack(), event.getMultiBufferSource(), event.getPackedLight())) {
                 event.setCanceled(true);
             }
         }
+    }
+
+    private void onRenderHand(RenderHandEvent event) {
+        Minecraft client = Minecraft.getInstance();
+        if (!config.firstPersonModelHands() || client.player == null || !event.getItemStack().isEmpty()) {
+            return;
+        }
+        boolean rightHand = isRightHand(client.player.getMainArm(), event.getHand());
+        if (RENDERER.renderFirstPersonModelHand(client.player, rightHand, event.getSwingProgress(), event.getEquipProgress(), event.getPartialTick(), event.getPoseStack(), event.getMultiBufferSource(), event.getPackedLight())) {
+            event.setCanceled(true);
+        }
+    }
+
+    private void onRenderArm(RenderArmEvent event) {
+        Minecraft client = Minecraft.getInstance();
+        if (!config.firstPersonModelHands() || event.getPlayer() != client.player) {
+            return;
+        }
+        boolean rightHand = event.getArm() == HumanoidArm.RIGHT;
+        if (RENDERER.renderFirstPersonModelHand(event.getPlayer(), rightHand, 0.0F, 0.0F, Minecraft.getInstance().getTimer().getGameTimeDeltaPartialTick(false), event.getPoseStack(), event.getMultiBufferSource(), event.getPackedLight())) {
+            event.setCanceled(true);
+        }
+    }
+
+    private static boolean isRightHand(HumanoidArm mainArm, InteractionHand hand) {
+        return hand == InteractionHand.MAIN_HAND ? mainArm == HumanoidArm.RIGHT : mainArm != HumanoidArm.RIGHT;
     }
 
     private static void reloadModel(Minecraft client, boolean announce) {
@@ -218,6 +255,7 @@ public final class ArmatureSkinMod {
             }
             loadedModel = model;
             RENDERER.setModel(model, config, texture, materialTextures, meshTextures);
+            logModelDiagnostics(model);
             LOGGER.info("Loaded armature FBX skin from {} with texture {}, {} material texture(s), and {} mesh texture override(s). bones={}, meshes={}, yawOffset={}, animation={}@{}",
                     fbxPath,
                     texture == null ? "none" : texture.location(),
@@ -383,13 +421,44 @@ public final class ArmatureSkinMod {
             }
 
             @Override
+            public boolean firstPersonModelHandsEnabled() {
+                return config.firstPersonModelHands();
+            }
+
+            @Override
+            public void setFirstPersonModelHandsEnabled(boolean enabled) {
+                config = config.withFirstPersonModelHands(enabled);
+                try {
+                    config.save(client.gameDirectory.toPath());
+                } catch (IOException ex) {
+                    throw new IllegalStateException("Failed to save first-person hand setting", ex);
+                }
+                reloadModel(client, true);
+            }
+
+            @Override
             public List<PartEntry> listParts(SkinEntry skin) {
                 ArmatureModel model = loadedModel;
                 if (model == null || !skin.id().equals(config.selectedSkinId())) {
                     return List.of();
                 }
+                Map<String, ArmatureSkinTexture> textureByBaseName = new HashMap<>();
+                for (ArmatureSkinTexture texture : skinManager.availableTextures()) {
+                    textureByBaseName.put(normalizeName(baseName(texture.path().getFileName().toString())), texture);
+                }
                 return model.meshes().stream()
-                        .map(mesh -> new PartEntry(mesh.key(), Component.literal(mesh.displayName()), config.isMeshDisabled(mesh.key())))
+                        .map(mesh -> {
+                            String assignedTextureId = config.meshTextureId(mesh.key());
+                            String resolvedTexture = assignedTextureId.isBlank()
+                                    ? Optional.ofNullable(bestTextureKey(mesh, textureByBaseName.keySet()))
+                                    .map(textureByBaseName::get)
+                                    .map(ArmatureSkinTexture::displayName)
+                                    .orElse("")
+                                    : textureDisplayName(assignedTextureId);
+                            String hint = mesh.textureHint().isBlank() ? "" : " [" + mesh.textureHint() + "]";
+                            String assignment = resolvedTexture.isBlank() ? "" : " -> " + resolvedTexture;
+                            return new PartEntry(mesh.key(), Component.literal(mesh.displayName() + hint + assignment), config.isMeshDisabled(mesh.key()), assignedTextureId);
+                        })
                         .toList();
             }
 
@@ -485,6 +554,7 @@ public final class ArmatureSkinMod {
             image = NativeImage.read(input);
             SkinRenderTexture.AlphaMode alphaMode = alphaMode(image);
             if (config.forceOpaqueSkin() && alphaMode != SkinRenderTexture.AlphaMode.OPAQUE) {
+                solidifyVisibleAlpha(image, 8);
                 alphaMode = SkinRenderTexture.AlphaMode.CUTOUT;
             }
             DynamicTexture dynamicTexture = new DynamicTexture(image);
@@ -552,6 +622,44 @@ public final class ArmatureSkinMod {
                 .orElse(textureId);
     }
 
+    private static void logModelDiagnostics(ArmatureModel model) {
+        ArmatureModel.Bounds modelBounds = ArmatureModel.Bounds.invalid();
+        for (ArmatureModel.Mesh mesh : model.meshes()) {
+            modelBounds = modelBounds.union(mesh.bindBounds());
+        }
+        float modelHeight = modelBounds.valid() ? modelBounds.height() : 0.0F;
+        for (ArmatureModel.Mesh mesh : model.meshes()) {
+            long unweightedVertices = mesh.vertices().stream()
+                    .filter(vertex -> totalWeight(vertex) <= 0.0001F)
+                    .count();
+            float unweightedPercent = mesh.vertices().isEmpty() ? 0.0F : unweightedVertices * 100.0F / mesh.vertices().size();
+            LOGGER.info(
+                    "FBX mesh '{}': vertices={}, triangles={}, unweighted={}%, material='{}', textureHint='{}', bindBounds={}",
+                    mesh.displayName(),
+                    mesh.vertices().size(),
+                    mesh.indices().length / 3,
+                    String.format(Locale.ROOT, "%.1f", unweightedPercent),
+                    mesh.materialName(),
+                    mesh.textureHint(),
+                    mesh.bindBounds()
+            );
+            if (modelBounds.valid() && mesh.bindBounds().valid()
+                    && (mesh.bindBounds().height() > modelHeight * 2.5F
+                    || mesh.bindBounds().width() > Math.max(modelHeight * 4.0F, 0.001F)
+                    || mesh.bindBounds().depth() > Math.max(modelHeight * 4.0F, 0.001F))) {
+                LOGGER.warn("FBX mesh '{}' has unusually large bind bounds and may be a source of high-poly artifacts. Disable it in the selector to isolate the issue.", mesh.displayName());
+            }
+        }
+    }
+
+    private static float totalWeight(ArmatureModel.Vertex vertex) {
+        float total = 0.0F;
+        for (float weight : vertex.weights()) {
+            total += weight;
+        }
+        return total;
+    }
+
     private static String baseName(String fileName) {
         int extensionStart = fileName.lastIndexOf('.');
         return extensionStart < 0 ? fileName : fileName.substring(0, extensionStart);
@@ -595,6 +703,19 @@ public final class ArmatureSkinMod {
         return partial > Math.max(16L, total / 4L)
                 ? SkinRenderTexture.AlphaMode.TRANSLUCENT
                 : SkinRenderTexture.AlphaMode.CUTOUT;
+    }
+
+    private static void solidifyVisibleAlpha(NativeImage image, int threshold) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int pixel = image.getPixelRGBA(x, y);
+                int alpha = (pixel >>> 24) & 0xFF;
+                int snappedAlpha = alpha >= threshold ? 0xFF : 0x00;
+                image.setPixelRGBA(x, y, (pixel & 0x00FFFFFF) | (snappedAlpha << 24));
+            }
+        }
     }
 
     private static String bestTextureKey(ArmatureModel.Mesh mesh, java.util.Set<String> textureKeys) {

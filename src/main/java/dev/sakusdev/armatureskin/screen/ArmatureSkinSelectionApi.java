@@ -21,6 +21,13 @@ public interface ArmatureSkinSelectionApi {
 
     void openSkinsFolder();
 
+    default boolean firstPersonModelHandsEnabled() {
+        return false;
+    }
+
+    default void setFirstPersonModelHandsEnabled(boolean enabled) {
+    }
+
     default List<TextureEntry> listTextures(SkinEntry skin) {
         return List.of();
     }
@@ -59,6 +66,9 @@ public interface ArmatureSkinSelectionApi {
     record TextureEntry(String id, Component displayName, Path path) {
     }
 
-    record PartEntry(String key, Component displayName, boolean hidden) {
+    record PartEntry(String key, Component displayName, boolean hidden, String textureId) {
+        public PartEntry(String key, Component displayName, boolean hidden) {
+            this(key, displayName, hidden, "");
+        }
     }
 }

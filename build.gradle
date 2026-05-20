@@ -36,10 +36,16 @@ dependencies {
     embedAssimp "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-linux"
     embedAssimp "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-macos"
     embedAssimp "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-macos-arm64"
+
+    testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
 }
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
@@ -92,6 +98,12 @@ java {
 
 tasks.named("jar", Jar).configure {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from("LICENSE") {
+        into "META-INF"
+    }
+    from("THIRD_PARTY_NOTICES.md") {
+        into "META-INF"
+    }
     from {
         configurations.embedAssimp.collect { zipTree(it) }
     }
