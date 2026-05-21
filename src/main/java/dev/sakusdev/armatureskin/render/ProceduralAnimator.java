@@ -7,6 +7,9 @@ import java.util.Locale;
 
 final class ProceduralAnimator {
     private static final float MAX_WALK_SWING = 0.42F;
+    private static final float ARM_IDLE_PITCH = -0.08F;
+    private static final float ARM_WALK_SWING = 0.08F;
+    private static final float FOREARM_WALK_SWING = 0.03F;
 
     private ProceduralAnimator() {
     }
@@ -22,6 +25,7 @@ final class ProceduralAnimator {
         float counterWalk = -walk;
         boolean left = isLeft(name);
         float sideWalk = left ? walk : counterWalk;
+        float walkAmount = clamp(Math.abs(speed) / 0.65F, 0.0F, 1.0F);
         float crouch = crouching ? 1.0F : 0.0F;
 
         if (isHead(name)) {
@@ -37,9 +41,11 @@ final class ProceduralAnimator {
         } else if (isLowerLeg(name)) {
             animated.rotateX(Math.max(0.0F, -sideWalk) * 0.45F + 0.42F * crouch);
         } else if (isUpperArm(name)) {
-            animated.rotateX(sideWalk * 0.28F + 0.04F * crouch);
+            float armSwing = -sideWalk * ARM_WALK_SWING * walkAmount;
+            animated.rotateX(ARM_IDLE_PITCH + armSwing + 0.03F * crouch);
         } else if (isLowerArm(name)) {
-            animated.rotateX(sideWalk * 0.10F);
+            float forearmSwing = -sideWalk * FOREARM_WALK_SWING * walkAmount;
+            animated.rotateX(forearmSwing);
         }
 
         return animated;
@@ -66,7 +72,7 @@ final class ProceduralAnimator {
     }
 
     private static boolean isUpperArm(String name) {
-        if (isAuxiliaryArmBone(name)) {
+        if (isAuxiliaryArmBone(name) || isArmTerminalBone(name)) {
             return false;
         }
         return startsWithAny(name, "upperarm", "upper_arm", "leftupperarm", "rightupperarm", "leftarm", "rightarm")
@@ -74,7 +80,7 @@ final class ProceduralAnimator {
     }
 
     private static boolean isLowerArm(String name) {
-        if (isAuxiliaryArmBone(name)) {
+        if (isAuxiliaryArmBone(name) || isArmTerminalBone(name)) {
             return false;
         }
         return startsWithAny(name, "lowerarm", "lower_arm", "forearm", "leftlowerarm", "rightlowerarm")
@@ -103,7 +109,11 @@ final class ProceduralAnimator {
     }
 
     private static boolean isAuxiliaryArmBone(String name) {
-        return containsAny(name, "twist", "roll", "adjust", "correct", "helper");
+        return containsAny(name, "twist", "roll", "adjust", "correct", "helper", "offset", "aim", "ik", "pole");
+    }
+
+    private static boolean isArmTerminalBone(String name) {
+        return containsAny(name, "hand", "wrist", "finger", "thumb", "index", "middle", "ring", "pinky");
     }
 
     private static boolean startsWithAny(String value, String... tokens) {

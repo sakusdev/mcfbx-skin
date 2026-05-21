@@ -546,20 +546,28 @@ public final class ArmatureSkinMod {
     }
 
     private static SkinRenderTexture loadTexture(Minecraft client, Path path, String id) throws IOException {
-        return loadTexture(client, Files.readAllBytes(path), id);
+        String fileName = path == null || path.getFileName() == null ? "" : path.getFileName().toString();
+        return loadTexture(client, Files.readAllBytes(path), id, isExplicitTranslucencyName(fileName));
     }
 
     private static SkinRenderTexture loadTexture(Minecraft client, byte[] bytes, String id) throws IOException {
+        return loadTexture(client, bytes, id, false);
+    }
+
+    private static SkinRenderTexture loadTexture(Minecraft client, byte[] bytes, String id, boolean preserveTranslucency) throws IOException {
         NativeImage image = null;
         try (InputStream input = new java.io.ByteArrayInputStream(bytes)) {
             image = NativeImage.read(input);
             SkinRenderTexture.AlphaMode alphaMode = alphaMode(image);
-            if (config.forceOpaqueSkin() && alphaMode != SkinRenderTexture.AlphaMode.OPAQUE) {
+            if (config.forceOpaqueSkin() && alphaMode == SkinRenderTexture.AlphaMode.CUTOUT) {
+                solidifyVisibleAlpha(image, CUTOUT_ALPHA_THRESHOLD);
+                alphaMode = SkinRenderTexture.AlphaMode.CUTOUT;
+            } else if (config.forceOpaqueSkin() && alphaMode == SkinRenderTexture.AlphaMode.TRANSLUCENT && !preserveTranslucency) {
                 solidifyVisibleAlpha(image, CUTOUT_ALPHA_THRESHOLD);
                 alphaMode = SkinRenderTexture.AlphaMode.CUTOUT;
             }
             DynamicTexture dynamicTexture = new DynamicTexture(image);
-            dynamicTexture.setFilter(true, false);
+            dynamicTexture.setFilter(false, false);
             image = null;
             ResourceLocation location = ResourceLocation.fromNamespaceAndPath(MOD_ID, id);
             client.getTextureManager().register(location, dynamicTexture);
@@ -569,6 +577,15 @@ public final class ArmatureSkinMod {
                 image.close();
             }
         }
+    }
+
+    private static boolean isExplicitTranslucencyName(String value) {
+        String normalized = value == null ? "" : value.toLowerCase(Locale.ROOT);
+        return normalized.contains("alpha")
+                || normalized.contains("transparent")
+                || normalized.contains("translucent")
+                || normalized.contains("glass")
+                || normalized.contains("blend");
     }
 
     private static SkinRenderTexture loadFallbackTexture(Minecraft client) {

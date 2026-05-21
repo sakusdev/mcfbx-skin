@@ -16,6 +16,7 @@ import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.ResourceLocation;
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
@@ -219,16 +220,22 @@ public final class ArmatureSkinRenderer {
         List<ArmatureModel.Bone> bones = current.bones();
         Matrix4f[] global = new Matrix4f[bones.size()];
         Matrix4f[] skin = new Matrix4f[bones.size()];
+        int[] armAimChildren = armAimChildren(bones);
 
         float limbAngle = config.animationEnabled() && player != null ? player.walkAnimation.position(tickDelta) : 0.0F;
         float limbDistance = config.animationEnabled() && player != null ? player.walkAnimation.speed(tickDelta) : 0.0F;
         float age = player == null ? partialPreviewAge(tickDelta) : player.tickCount + tickDelta;
         float headYaw = player == null ? 0.0F : player.getYHeadRot() - player.yBodyRot;
         float headPitch = player == null ? 0.0F : player.getXRot();
+        float armWalk = armWalk(limbAngle, limbDistance, config.animationStrength());
 
         for (int i = 0; i < bones.size(); i++) {
             ArmatureModel.Bone bone = bones.get(i);
             Matrix4f local = ProceduralAnimator.animateBone(bone, limbAngle, limbDistance, age, headYaw, headPitch, config.animationStrength(), crouching);
+            if (i < armAimChildren.length && armAimChildren[i] >= 0) {
+                Matrix4f parentGlobal = bone.parentIndex() >= 0 ? global[bone.parentIndex()] : new Matrix4f();
+                aimUpperArmAtRestPose(local, parentGlobal, bones.get(armAimChildren[i]), isLeftBoneName(bone.name()), armWalk);
+            }
             if (bone.parentIndex() >= 0) {
                 global[i] = new Matrix4f(global[bone.parentIndex()]).mul(local);
             } else {
@@ -242,6 +249,75 @@ public final class ArmatureSkinRenderer {
     private float partialPreviewAge(float tickDelta) {
         AbstractClientPlayer player = Minecraft.getInstance().player;
         return player == null ? tickDelta : player.tickCount + tickDelta;
+    }
+
+    private static float armWalk(float limbAngle, float limbDistance, float strength) {
+        float animationStrength = Math.max(0.0F, Math.min(strength, 1.5F));
+        float speed = Math.min(Math.max(limbDistance - 0.02F, 0.0F), 0.65F) * animationStrength * 2.4F;
+        float phase = limbAngle * 0.6662F;
+        return clamp((float) Math.sin(phase) * speed, -0.42F, 0.42F);
+    }
+
+    private static int[] armAimChildren(List<ArmatureModel.Bone> bones) {
+        int[] children = new int[bones.size()];
+        java.util.Arrays.fill(children, -1);
+        for (int lowerIndex = 0; lowerIndex < bones.size(); lowerIndex++) {
+            if (!isLowerArmBoneName(bones.get(lowerIndex).name())) {
+                continue;
+            }
+            int childOnPath = lowerIndex;
+            int parent = bones.get(lowerIndex).parentIndex();
+            while (parent >= 0 && parent < bones.size()) {
+                if (isUpperArmBoneName(bones.get(parent).name())) {
+                    children[parent] = childOnPath;
+                    break;
+                }
+                childOnPath = parent;
+                parent = bones.get(parent).parentIndex();
+            }
+        }
+        return children;
+    }
+
+    private static void aimUpperArmAtRestPose(Matrix4f local, Matrix4f parentGlobal, ArmatureModel.Bone aimChild, boolean left, float walk) {
+        Vector3f childDirection = translationOf(aimChild.localBindTransform());
+        if (childDirection.lengthSquared() <= 0.000001F) {
+            return;
+        }
+        childDirection.normalize();
+
+        Matrix4f upperBasis = new Matrix4f(parentGlobal).mul(local);
+        Vector3f currentModelDirection = upperBasis.transformDirection(childDirection, new Vector3f());
+        if (currentModelDirection.lengthSquared() <= 0.000001F) {
+            return;
+        }
+        currentModelDirection.normalize();
+        if (currentModelDirection.y() < -0.55F) {
+            return;
+        }
+
+        Matrix4f inverseUpperBasis = new Matrix4f(upperBasis);
+        if (Math.abs(inverseUpperBasis.determinant()) <= 0.000001F) {
+            return;
+        }
+        inverseUpperBasis.invert();
+
+        float side = left ? -1.0F : 1.0F;
+        float armForward = (left ? -walk : walk) * 0.22F;
+        Vector3f targetModelDirection = new Vector3f(side * 0.18F, -1.0F, armForward).normalize();
+        Vector3f targetLocalDirection = inverseUpperBasis.transformDirection(targetModelDirection, new Vector3f());
+        if (targetLocalDirection.lengthSquared() <= 0.000001F) {
+            return;
+        }
+        targetLocalDirection.normalize();
+        if (childDirection.dot(targetLocalDirection) > 0.995F) {
+            return;
+        }
+        local.rotate(new Quaternionf().rotationTo(childDirection, targetLocalDirection));
+    }
+
+    private static Vector3f translationOf(Matrix4f matrix) {
+        return new Vector3f(matrix.m30(), matrix.m31(), matrix.m32());
     }
 
     private void drawMeshes(List<RenderMesh> meshes, PoseStack.Pose entry, MultiBufferSource buffers, int light) {
@@ -438,8 +514,59 @@ public final class ArmatureSkinRenderer {
         return containsAny(key, "rightarm", "right_arm", "right hand", "righthand", "_r_", ".r.", "-r-", "arm_r", "hand_r", "j_bip_r");
     }
 
+    private static boolean isUpperArmBoneName(String value) {
+        String name = normalizeBoneName(value);
+        if (isAuxiliaryArmBoneName(name) || isArmTerminalBoneName(name)) {
+            return false;
+        }
+        return startsWithAny(name, "upperarm", "upper_arm", "leftupperarm", "rightupperarm", "leftarm", "rightarm")
+                || containsAny(name, "j_bip_l_upperarm", "j_bip_r_upperarm", "mixamorig:leftarm", "mixamorig:rightarm", "mixamorig_leftarm", "mixamorig_rightarm");
+    }
+
+    private static boolean isLowerArmBoneName(String value) {
+        String name = normalizeBoneName(value);
+        if (isAuxiliaryArmBoneName(name) || isArmTerminalBoneName(name)) {
+            return false;
+        }
+        return startsWithAny(name, "lowerarm", "lower_arm", "forearm", "leftlowerarm", "rightlowerarm")
+                || containsAny(name, "j_bip_l_lowerarm", "j_bip_r_lowerarm", "mixamorig:leftforearm", "mixamorig:rightforearm", "mixamorig_leftforearm", "mixamorig_rightforearm");
+    }
+
+    private static boolean isLeftBoneName(String value) {
+        String name = normalizeBoneName(value);
+        return name.contains("left")
+                || name.contains("_l_")
+                || name.contains(".l.")
+                || name.contains(":l_")
+                || name.contains("j_bip_l")
+                || name.endsWith(".l")
+                || name.endsWith("_l")
+                || name.endsWith(" l");
+    }
+
+    private static boolean isAuxiliaryArmBoneName(String name) {
+        return containsAny(name, "twist", "roll", "adjust", "correct", "helper", "offset", "aim", "ik", "pole");
+    }
+
+    private static boolean isArmTerminalBoneName(String name) {
+        return containsAny(name, "hand", "wrist", "finger", "thumb", "index", "middle", "ring", "pinky");
+    }
+
+    private static String normalizeBoneName(String value) {
+        return value == null ? "" : value.toLowerCase(java.util.Locale.ROOT);
+    }
+
     private static String armMatchText(ArmatureModel.Mesh mesh) {
         return (mesh.key() + " " + mesh.name() + " " + mesh.displayName()).toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private static boolean startsWithAny(String value, String... tokens) {
+        for (String token : tokens) {
+            if (value.startsWith(token)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean containsAny(String value, String... tokens) {
@@ -449,6 +576,10 @@ public final class ArmatureSkinRenderer {
             }
         }
         return false;
+    }
+
+    private static float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(value, max));
     }
 
     private static ArmatureModel.Bounds boundsOf(ArmatureModel model, ArmatureSkinConfig config) {
