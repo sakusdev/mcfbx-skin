@@ -49,6 +49,7 @@ import java.util.Optional;
 public final class ArmatureSkinMod {
     public static final String MOD_ID = "armature_fbx_skin";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+    private static final int CUTOUT_ALPHA_THRESHOLD = 128;
 
     private static final ArmatureSkinRenderer RENDERER = new ArmatureSkinRenderer();
     private static ArmatureSkinConfig config = ArmatureSkinConfig.defaults();
@@ -554,11 +555,11 @@ public final class ArmatureSkinMod {
             image = NativeImage.read(input);
             SkinRenderTexture.AlphaMode alphaMode = alphaMode(image);
             if (config.forceOpaqueSkin() && alphaMode != SkinRenderTexture.AlphaMode.OPAQUE) {
-                solidifyVisibleAlpha(image, 8);
+                solidifyVisibleAlpha(image, CUTOUT_ALPHA_THRESHOLD);
                 alphaMode = SkinRenderTexture.AlphaMode.CUTOUT;
             }
             DynamicTexture dynamicTexture = new DynamicTexture(image);
-            dynamicTexture.setFilter(false, false);
+            dynamicTexture.setFilter(true, false);
             image = null;
             ResourceLocation location = ResourceLocation.fromNamespaceAndPath(MOD_ID, id);
             client.getTextureManager().register(location, dynamicTexture);

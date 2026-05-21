@@ -30,8 +30,13 @@ import java.util.Map;
 import java.util.Set;
 
 final class AssimpFbxLoader {
+    private static final int MAX_SKIN_INFLUENCES = 8;
+    private static final int MIN_TRIANGLES_FOR_EDGE_OUTLIER_CULL = 128;
+    private static final float EDGE_OUTLIER_PERCENTILE = 0.95F;
+    private static final float EDGE_OUTLIER_MULTIPLIER_SQUARED = 9.0F;
+    private static final float MIN_MESH_DIAGONAL_EDGE_LIMIT_RATIO = 0.025F;
+
     private static final int IMPORT_FLAGS = Assimp.aiProcess_Triangulate
-            | Assimp.aiProcess_LimitBoneWeights
             | Assimp.aiProcess_ValidateDataStructure
             | Assimp.aiProcess_FindInvalidData
             | Assimp.aiProcess_GenSmoothNormals
@@ -207,7 +212,7 @@ final class AssimpFbxLoader {
                 v = uv.y();
             }
 
-            List<VertexWeight> normalized = normalizedTopWeights(weightsByVertex[vertexIndex]);
+            List<VertexWeight> normalized = normalizedWeights(weightsByVertex[vertexIndex]);
             int[] boneIndices = new int[normalized.size()];
             float[] boneWeights = new float[normalized.size()];
             for (int i = 0; i < normalized.size(); i++) {
@@ -235,10 +240,13 @@ final class AssimpFbxLoader {
             }
         }
 
+        int[] indexArray = indices.stream().mapToInt(Integer::intValue).toArray();
+        List<Vector3f> bindPositions = bindPositions(vertices, bindSkinMatrices, meshToModelTransform);
+        ArmatureModel.Bounds bindBounds = bindBounds(bindPositions);
+        float longTriangleEdgeLimitSquared = longTriangleEdgeLimitSquared(bindPositions, indexArray, bindBounds);
         String meshName = name(mesh.mName());
         String key = "assimp:" + meshIndex + "|mesh:" + normalizeKey(meshName) + "|material:" + normalizeKey(material.name());
-        ArmatureModel.Bounds bindBounds = bindBounds(vertices, bindSkinMatrices, meshToModelTransform);
-        return new ArmatureModel.Mesh(key, meshName, material.name(), material.textureHint(), vertices, indices.stream().mapToInt(Integer::intValue).toArray(), meshToModelTransform, bindBounds);
+        return new ArmatureModel.Mesh(key, meshName, material.name(), material.textureHint(), vertices, indexArray, meshToModelTransform, bindBounds, longTriangleEdgeLimitSquared);
     }
 
     @SuppressWarnings("unchecked")
@@ -274,26 +282,13 @@ final class AssimpFbxLoader {
         return weightsByVertex;
     }
 
-    private static boolean hasWeights(List<VertexWeight>[] weightsByVertex) {
-        for (List<VertexWeight> weights : weightsByVertex) {
-            if (!weights.isEmpty()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static List<VertexWeight> normalizedTopWeights(List<VertexWeight> weights) {
+    private static List<VertexWeight> normalizedWeights(List<VertexWeight> weights) {
         if (weights == null || weights.isEmpty()) {
             return List.of();
         }
-        float originalTotal = 0.0F;
-        for (VertexWeight weight : weights) {
-            originalTotal += weight.weight();
-        }
         List<VertexWeight> top = weights.stream()
                 .sorted((a, b) -> Float.compare(b.weight(), a.weight()))
-                .limit(4)
+                .limit(MAX_SKIN_INFLUENCES)
                 .toList();
         float total = 0.0F;
         for (VertexWeight weight : top) {
@@ -302,9 +297,6 @@ final class AssimpFbxLoader {
         if (total <= 0.0F) {
             return List.of();
         }
-        if (originalTotal < 0.999F && total <= 1.0F) {
-            return top;
-        }
         List<VertexWeight> normalized = new ArrayList<>(top.size());
         for (VertexWeight weight : top) {
             normalized.add(new VertexWeight(weight.boneIndex(), weight.weight() / total));
@@ -312,12 +304,62 @@ final class AssimpFbxLoader {
         return normalized;
     }
 
-    private static ArmatureModel.Bounds bindBounds(List<ArmatureModel.Vertex> vertices, Matrix4f[] bindSkinMatrices, Matrix4f meshToModelTransform) {
-        ArmatureModel.Bounds bounds = ArmatureModel.Bounds.invalid();
+    private static List<Vector3f> bindPositions(List<ArmatureModel.Vertex> vertices, Matrix4f[] bindSkinMatrices, Matrix4f meshToModelTransform) {
+        List<Vector3f> positions = new ArrayList<>(vertices.size());
         for (ArmatureModel.Vertex vertex : vertices) {
-            bounds = bounds.include(skinPosition(vertex, bindSkinMatrices, meshToModelTransform));
+            positions.add(skinPosition(vertex, bindSkinMatrices, meshToModelTransform));
+        }
+        return positions;
+    }
+
+    private static ArmatureModel.Bounds bindBounds(List<Vector3f> positions) {
+        ArmatureModel.Bounds bounds = ArmatureModel.Bounds.invalid();
+        for (Vector3f position : positions) {
+            bounds = bounds.include(position);
         }
         return bounds;
+    }
+
+    private static float longTriangleEdgeLimitSquared(List<Vector3f> bindPositions, int[] indices, ArmatureModel.Bounds bindBounds) {
+        if (indices.length / 3 < MIN_TRIANGLES_FOR_EDGE_OUTLIER_CULL || bindPositions.isEmpty() || bindBounds == null || !bindBounds.valid()) {
+            return Float.POSITIVE_INFINITY;
+        }
+
+        List<Float> longestEdges = new ArrayList<>(indices.length / 3);
+        for (int i = 0; i + 2 < indices.length; i += 3) {
+            int ia = indices[i];
+            int ib = indices[i + 1];
+            int ic = indices[i + 2];
+            if (ia < 0 || ib < 0 || ic < 0 || ia >= bindPositions.size() || ib >= bindPositions.size() || ic >= bindPositions.size()) {
+                continue;
+            }
+            Vector3f a = bindPositions.get(ia);
+            Vector3f b = bindPositions.get(ib);
+            Vector3f c = bindPositions.get(ic);
+            if (!isFinite(a) || !isFinite(b) || !isFinite(c)) {
+                continue;
+            }
+            float maxEdge = Math.max(a.distanceSquared(b), Math.max(b.distanceSquared(c), c.distanceSquared(a)));
+            if (Float.isFinite(maxEdge) && maxEdge > 0.0F) {
+                longestEdges.add(maxEdge);
+            }
+        }
+        if (longestEdges.size() < MIN_TRIANGLES_FOR_EDGE_OUTLIER_CULL) {
+            return Float.POSITIVE_INFINITY;
+        }
+
+        longestEdges.sort(Float::compare);
+        int percentileIndex = Math.max(0, Math.min(longestEdges.size() - 1, (int) (longestEdges.size() * EDGE_OUTLIER_PERCENTILE)));
+        float percentileLimit = longestEdges.get(percentileIndex) * EDGE_OUTLIER_MULTIPLIER_SQUARED;
+        float diagonalSquared = bindBounds.width() * bindBounds.width()
+                + bindBounds.height() * bindBounds.height()
+                + bindBounds.depth() * bindBounds.depth();
+        float diagonalLimit = diagonalSquared * MIN_MESH_DIAGONAL_EDGE_LIMIT_RATIO;
+        return Math.max(percentileLimit, diagonalLimit);
+    }
+
+    private static boolean isFinite(Vector3f vector) {
+        return vector != null && Float.isFinite(vector.x()) && Float.isFinite(vector.y()) && Float.isFinite(vector.z());
     }
 
     private static Vector3f skinPosition(ArmatureModel.Vertex vertex, Matrix4f[] skinMatrices, Matrix4f meshToModelTransform) {

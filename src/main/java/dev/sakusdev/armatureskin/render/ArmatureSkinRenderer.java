@@ -24,6 +24,10 @@ import java.util.Map;
 
 public final class ArmatureSkinRenderer {
     private static final float TARGET_MODEL_HEIGHT = 1.8F;
+    private static final float MIN_VALID_TRIANGLE_AREA = 0.0000001F;
+    private static final float MIN_NEEDLE_EDGE_LENGTH_SQUARED = 0.0036F;
+    private static final float NEEDLE_MIN_EDGE_RATIO_SQUARED = 0.0016F;
+    private static final float NEEDLE_AREA_RATIO_SQUARED = 0.00025F;
 
     private ArmatureModel model;
     private ArmatureSkinConfig config = ArmatureSkinConfig.defaults();
@@ -164,9 +168,9 @@ public final class ArmatureSkinRenderer {
                 if (config.isMeshDisabled(mesh.key())) {
                     continue;
                 }
-                SkinRenderTexture renderTexture = textureForMesh(mesh, player);
-                boolean latePass = isLateTransparencyMesh(mesh) || renderTexture.alphaMode() == SkinRenderTexture.AlphaMode.TRANSLUCENT;
-                RenderMesh renderMesh = new RenderMesh(mesh, latePass ? renderTexture.withAlphaMode(SkinRenderTexture.AlphaMode.TRANSLUCENT) : renderTexture, skinMesh(mesh, skinMatrices));
+                SkinRenderTexture renderTexture = renderTextureForMesh(mesh, player);
+                boolean latePass = renderTexture.alphaMode() == SkinRenderTexture.AlphaMode.TRANSLUCENT;
+                RenderMesh renderMesh = new RenderMesh(mesh, renderTexture, skinMesh(mesh, skinMatrices));
                 if (latePass) {
                     lateMeshes.add(renderMesh);
                 } else {
@@ -183,9 +187,10 @@ public final class ArmatureSkinRenderer {
 
     private SkinRenderTexture renderTextureForMesh(ArmatureModel.Mesh mesh, AbstractClientPlayer player) {
         SkinRenderTexture renderTexture = textureForMesh(mesh, player);
-        return isLateTransparencyMesh(mesh) || renderTexture.alphaMode() == SkinRenderTexture.AlphaMode.TRANSLUCENT
-                ? renderTexture.withAlphaMode(SkinRenderTexture.AlphaMode.TRANSLUCENT)
-                : renderTexture;
+        if (renderTexture.alphaMode() == SkinRenderTexture.AlphaMode.TRANSLUCENT && !isTrueTranslucencyMesh(mesh)) {
+            return renderTexture.withAlphaMode(SkinRenderTexture.AlphaMode.CUTOUT);
+        }
+        return renderTexture;
     }
 
     private SkinRenderTexture textureForMesh(ArmatureModel.Mesh mesh, AbstractClientPlayer player) {
@@ -257,7 +262,7 @@ public final class ArmatureSkinRenderer {
             if (ia < 0 || ib < 0 || ic < 0 || ia >= vertices.size() || ib >= vertices.size() || ic >= vertices.size()) {
                 continue;
             }
-            if (isBrokenTriangle(skinned.positions()[ia], skinned.positions()[ib], skinned.positions()[ic])) {
+            if (isBrokenTriangle(mesh, skinned.positions()[ia], skinned.positions()[ib], skinned.positions()[ic])) {
                 continue;
             }
             emitVertex(consumer, entry, vertices.get(ia), skinned.positions()[ia], skinned.normals()[ia], light);
@@ -282,12 +287,47 @@ public final class ArmatureSkinRenderer {
         return new SkinnedMesh(positions, normals, bounds);
     }
 
-    private boolean isBrokenTriangle(Vector3f a, Vector3f b, Vector3f c) {
+    private boolean isBrokenTriangle(ArmatureModel.Mesh mesh, Vector3f a, Vector3f b, Vector3f c) {
         if (!isFinite(a) || !isFinite(b) || !isFinite(c)) {
             return true;
         }
+        float ab = a.distanceSquared(b);
+        float bc = b.distanceSquared(c);
+        float ca = c.distanceSquared(a);
+        float maxEdge = Math.max(ab, Math.max(bc, ca));
+        if (maxEdge <= MIN_VALID_TRIANGLE_AREA) {
+            return true;
+        }
         float doubleArea = new Vector3f(b).sub(a).cross(new Vector3f(c).sub(a)).length();
-        return doubleArea <= 0.0000001F;
+        if (doubleArea <= MIN_VALID_TRIANGLE_AREA) {
+            return true;
+        }
+
+        float longTriangleLimit = mesh.longTriangleEdgeLimitSquared();
+        if (Float.isFinite(longTriangleLimit) && maxEdge > longTriangleLimit) {
+            return true;
+        }
+
+        ArmatureModel.Bounds bindBounds = mesh.bindBounds();
+        if (bindBounds == null || !bindBounds.valid()) {
+            return false;
+        }
+        float bindDiagonal = bindBounds.width() * bindBounds.width()
+                + bindBounds.height() * bindBounds.height()
+                + bindBounds.depth() * bindBounds.depth();
+        if (bindDiagonal <= 0.0000001F) {
+            return false;
+        }
+
+        float longEnoughToBeVisible = Math.max(MIN_NEEDLE_EDGE_LENGTH_SQUARED, bindDiagonal * 0.035F);
+        if (maxEdge < longEnoughToBeVisible) {
+            return false;
+        }
+
+        float minEdge = Math.min(ab, Math.min(bc, ca));
+        boolean needleByEdgeRatio = minEdge < maxEdge * NEEDLE_MIN_EDGE_RATIO_SQUARED;
+        boolean needleByArea = doubleArea * doubleArea < maxEdge * maxEdge * NEEDLE_AREA_RATIO_SQUARED;
+        return needleByEdgeRatio || needleByArea;
     }
 
     private boolean isFinite(Vector3f vector) {
@@ -383,9 +423,9 @@ public final class ArmatureSkinRenderer {
         return materialName.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9._-]+", "_");
     }
 
-    private static boolean isLateTransparencyMesh(ArmatureModel.Mesh mesh) {
+    private static boolean isTrueTranslucencyMesh(ArmatureModel.Mesh mesh) {
         String text = (mesh.materialName() + " " + mesh.textureHint() + " " + mesh.name()).toLowerCase(java.util.Locale.ROOT);
-        return text.contains("alpha") || text.contains("outline") || text.contains("transparent") || text.contains("hair");
+        return text.contains("transparent") || text.contains("translucent") || text.contains("glass") || text.contains("blend");
     }
 
     private static boolean isLeftArmMesh(ArmatureModel.Mesh mesh) {

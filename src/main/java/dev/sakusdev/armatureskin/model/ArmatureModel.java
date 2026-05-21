@@ -24,7 +24,7 @@ public record ArmatureModel(List<Bone> bones, List<Mesh> meshes) {
     public record Bone(long id, String name, int parentIndex, Matrix4f localBindTransform, Matrix4f inverseBindTransform) {
     }
 
-    public record Mesh(String key, String name, String materialName, String textureHint, List<Vertex> vertices, int[] indices, Matrix4f meshToModelTransform, Bounds bindBounds) {
+    public record Mesh(String key, String name, String materialName, String textureHint, List<Vertex> vertices, int[] indices, Matrix4f meshToModelTransform, Bounds bindBounds, float longTriangleEdgeLimitSquared) {
         public Mesh(List<Vertex> vertices, int[] indices) {
             this("", "", "", "", vertices, indices);
         }
@@ -45,6 +45,10 @@ public record ArmatureModel(List<Bone> bones, List<Mesh> meshes) {
             this(key, name, materialName, textureHint, vertices, indices, new Matrix4f(), null);
         }
 
+        public Mesh(String key, String name, String materialName, String textureHint, List<Vertex> vertices, int[] indices, Matrix4f meshToModelTransform, Bounds bindBounds) {
+            this(key, name, materialName, textureHint, vertices, indices, meshToModelTransform, bindBounds, Float.POSITIVE_INFINITY);
+        }
+
         public String displayName() {
             if (name != null && !name.isBlank()) {
                 return materialName == null || materialName.isBlank() ? name : name + " / " + materialName;
@@ -61,6 +65,9 @@ public record ArmatureModel(List<Bone> bones, List<Mesh> meshes) {
             indices = indices == null ? new int[0] : indices;
             meshToModelTransform = meshToModelTransform == null ? new Matrix4f() : new Matrix4f(meshToModelTransform);
             bindBounds = bindBounds == null ? Bounds.fromVertices(vertices, meshToModelTransform) : bindBounds;
+            longTriangleEdgeLimitSquared = Float.isFinite(longTriangleEdgeLimitSquared) && longTriangleEdgeLimitSquared > 0.0F
+                    ? longTriangleEdgeLimitSquared
+                    : Float.POSITIVE_INFINITY;
         }
 
         private static String stableKey(String name, String materialName) {

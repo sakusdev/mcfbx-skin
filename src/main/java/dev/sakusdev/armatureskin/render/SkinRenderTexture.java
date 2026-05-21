@@ -11,7 +11,7 @@ public record SkinRenderTexture(ResourceLocation location, AlphaMode alphaMode) 
     public RenderType renderType() {
         return switch (alphaMode) {
             case TRANSLUCENT -> RenderType.entityTranslucent(location);
-            case OPAQUE, CUTOUT -> RenderType.entityCutoutNoCull(location);
+            case OPAQUE, CUTOUT -> RenderType.entityCutout(location);
         };
     }
 
