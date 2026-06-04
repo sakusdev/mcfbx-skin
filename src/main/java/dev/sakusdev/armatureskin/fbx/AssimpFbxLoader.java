@@ -496,16 +496,16 @@ final class AssimpFbxLoader {
         }
     }
 
-    private record SceneNodes(String rootName, Map<String, String> parentByNode, Map<String, Matrix4f> globalByNode, Map<Integer, Matrix4f> meshGlobalByIndex) {
+    private record SceneNodes(Matrix4f rootGlobal, Map<String, String> parentByNode, Map<String, Matrix4f> globalByNode, Map<Integer, Matrix4f> meshGlobalByIndex) {
         static SceneNodes collect(AINode root) {
             Map<String, String> parentByNode = new HashMap<>();
             Map<String, Matrix4f> globalByNode = new HashMap<>();
             Map<Integer, Matrix4f> meshGlobalByIndex = new HashMap<>();
-            String rootName = root == null ? "" : name(root.mName());
+            Matrix4f rootGlobal = root == null ? new Matrix4f() : toJoml(root.mTransformation());
             if (root != null) {
                 collect(root, null, new Matrix4f(), parentByNode, globalByNode, meshGlobalByIndex);
             }
-            return new SceneNodes(rootName, parentByNode, globalByNode, meshGlobalByIndex);
+            return new SceneNodes(rootGlobal, parentByNode, globalByNode, meshGlobalByIndex);
         }
 
         private static void collect(AINode node, String parentName, Matrix4f parentGlobal, Map<String, String> parentByNode, Map<String, Matrix4f> globalByNode, Map<Integer, Matrix4f> meshGlobalByIndex) {
@@ -535,8 +535,7 @@ final class AssimpFbxLoader {
         }
 
         Matrix4f rootInverse() {
-            Matrix4f root = globalByNode.get(rootName);
-            return root == null ? new Matrix4f() : new Matrix4f(root).invert();
+            return rootGlobal == null ? new Matrix4f() : new Matrix4f(rootGlobal).invert();
         }
 
         Matrix4f normalizedGlobal(String nodeName, Matrix4f rootInverse) {

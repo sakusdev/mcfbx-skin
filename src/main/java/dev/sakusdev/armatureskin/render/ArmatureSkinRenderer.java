@@ -15,6 +15,7 @@ import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.ResourceLocation;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -95,7 +96,7 @@ public final class ArmatureSkinRenderer {
             matrices.scale(scale, scale, scale);
             matrices.translate(-armBounds.centerX(), -armBounds.centerY(), -armBounds.centerZ());
 
-            Matrix4f[] skinMatrices = buildSkinMatrices(current, player, tickDelta, player.isCrouching());
+            SkinMatrices skinMatrices = buildSkinMatrices(current, player, tickDelta, player.isCrouching());
             PoseStack.Pose entry = matrices.last();
             boolean rendered = false;
             for (ArmatureModel.Mesh mesh : current.meshes()) {
@@ -160,7 +161,7 @@ public final class ArmatureSkinRenderer {
                 matrices.translate(0.0F, -0.25F / renderScale, 0.0F);
             }
 
-            Matrix4f[] skinMatrices = buildSkinMatrices(current, player, tickDelta, crouching);
+            SkinMatrices skinMatrices = buildSkinMatrices(current, player, tickDelta, crouching);
             PoseStack.Pose entry = matrices.last();
 
             List<RenderMesh> primaryMeshes = new ArrayList<>();
@@ -216,10 +217,11 @@ public final class ArmatureSkinRenderer {
         return new SkinRenderTexture(ResourceLocation.fromNamespaceAndPath("minecraft", "textures/misc/white.png"), SkinRenderTexture.AlphaMode.OPAQUE);
     }
 
-    private Matrix4f[] buildSkinMatrices(ArmatureModel current, AbstractClientPlayer player, float tickDelta, boolean crouching) {
+    private SkinMatrices buildSkinMatrices(ArmatureModel current, AbstractClientPlayer player, float tickDelta, boolean crouching) {
         List<ArmatureModel.Bone> bones = current.bones();
         Matrix4f[] global = new Matrix4f[bones.size()];
-        Matrix4f[] skin = new Matrix4f[bones.size()];
+        Matrix4f[] positionMatrices = new Matrix4f[bones.size()];
+        Matrix3f[] normalMatrices = new Matrix3f[bones.size()];
         int[] armAimChildren = armAimChildren(bones);
 
         float limbAngle = config.animationEnabled() && player != null ? player.walkAnimation.position(tickDelta) : 0.0F;
@@ -241,9 +243,10 @@ public final class ArmatureSkinRenderer {
             } else {
                 global[i] = local;
             }
-            skin[i] = new Matrix4f(global[i]).mul(bone.inverseBindTransform());
+            positionMatrices[i] = new Matrix4f(global[i]).mul(bone.inverseBindTransform());
+            normalMatrices[i] = normalMatrix(positionMatrices[i]);
         }
-        return skin;
+        return new SkinMatrices(positionMatrices, normalMatrices);
     }
 
     private float partialPreviewAge(float tickDelta) {
@@ -349,15 +352,16 @@ public final class ArmatureSkinRenderer {
         return emitted;
     }
 
-    private SkinnedMesh skinMesh(ArmatureModel.Mesh mesh, Matrix4f[] skinMatrices) {
+    private SkinnedMesh skinMesh(ArmatureModel.Mesh mesh, SkinMatrices skinMatrices) {
         List<ArmatureModel.Vertex> vertices = mesh.vertices();
         Vector3f[] positions = new Vector3f[vertices.size()];
         Vector3f[] normals = new Vector3f[vertices.size()];
         ArmatureModel.Bounds bounds = ArmatureModel.Bounds.invalid();
+        Matrix3f meshNormalTransform = normalMatrix(mesh.meshToModelTransform());
         for (int i = 0; i < vertices.size(); i++) {
             ArmatureModel.Vertex vertex = vertices.get(i);
-            positions[i] = skinPosition(vertex, mesh.meshToModelTransform(), skinMatrices);
-            normals[i] = skinNormal(vertex, mesh.meshToModelTransform(), skinMatrices);
+            positions[i] = skinPosition(vertex, mesh.meshToModelTransform(), skinMatrices.positionMatrices());
+            normals[i] = skinNormal(vertex, meshNormalTransform, skinMatrices.normalMatrices());
             bounds = bounds.include(positions[i]);
         }
         return new SkinnedMesh(positions, normals, bounds);
@@ -450,13 +454,13 @@ public final class ArmatureSkinRenderer {
         return result;
     }
 
-    private Vector3f skinNormal(ArmatureModel.Vertex vertex, Matrix4f meshToModelTransform, Matrix4f[] skinMatrices) {
+    private Vector3f skinNormal(ArmatureModel.Vertex vertex, Matrix3f meshNormalTransform, Matrix3f[] skinMatrices) {
         Vector3f source = new Vector3f(vertex.nx(), vertex.ny(), vertex.nz());
         if (source.lengthSquared() <= 0.000001F) {
             source.set(0.0F, 1.0F, 0.0F);
         }
         source.normalize();
-        Vector3f fallback = new Vector3f(source).mulDirection(meshToModelTransform == null ? new Matrix4f() : meshToModelTransform);
+        Vector3f fallback = transformNormal(source, meshNormalTransform);
         if (fallback.lengthSquared() <= 0.000001F) {
             fallback.set(0.0F, 1.0F, 0.0F);
         } else {
@@ -476,7 +480,7 @@ public final class ArmatureSkinRenderer {
             if (boneIndex < 0 || boneIndex >= skinMatrices.length || weights[i] <= 0.0F) {
                 continue;
             }
-            Vector3f transformed = new Vector3f(source).mulDirection(skinMatrices[boneIndex]).mul(weights[i]);
+            Vector3f transformed = transformNormal(source, skinMatrices[boneIndex]).mul(weights[i]);
             result.add(transformed);
             appliedWeight += weights[i];
         }
@@ -490,6 +494,21 @@ public final class ArmatureSkinRenderer {
             return new Vector3f(fallback);
         }
         return result.normalize();
+    }
+
+    static Matrix3f normalMatrix(Matrix4f transform) {
+        Matrix3f normalMatrix = new Matrix3f();
+        if (transform == null) {
+            return normalMatrix.identity();
+        }
+        return transform.normal(normalMatrix);
+    }
+
+    static Vector3f transformNormal(Vector3f normal, Matrix3f transform) {
+        if (transform == null) {
+            return new Vector3f(normal);
+        }
+        return transform.transform(new Vector3f(normal));
     }
 
     public static String normalizeMaterialName(String materialName) {
@@ -603,6 +622,9 @@ public final class ArmatureSkinRenderer {
     }
 
     private record RenderMesh(ArmatureModel.Mesh mesh, SkinRenderTexture texture, SkinnedMesh skinned) {
+    }
+
+    private record SkinMatrices(Matrix4f[] positionMatrices, Matrix3f[] normalMatrices) {
     }
 
     private record SkinnedMesh(Vector3f[] positions, Vector3f[] normals, ArmatureModel.Bounds bounds) {

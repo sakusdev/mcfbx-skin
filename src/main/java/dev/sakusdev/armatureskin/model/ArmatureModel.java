@@ -125,7 +125,8 @@ public record ArmatureModel(List<Bone> bones, List<Mesh> meshes) {
         public boolean valid() {
             return Float.isFinite(minX) && Float.isFinite(minY) && Float.isFinite(minZ)
                     && Float.isFinite(maxX) && Float.isFinite(maxY) && Float.isFinite(maxZ)
-                    && height() > 0.0F;
+                    && width() >= 0.0F && height() >= 0.0F && depth() >= 0.0F
+                    && (width() > 0.0F || height() > 0.0F || depth() > 0.0F);
         }
 
         public float width() {
