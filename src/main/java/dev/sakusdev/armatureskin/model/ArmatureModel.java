@@ -3,13 +3,19 @@ package dev.sakusdev.armatureskin.model;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
-public record ArmatureModel(List<Bone> bones, List<Mesh> meshes) {
+public record ArmatureModel(List<Bone> bones, List<Mesh> meshes, List<EmbeddedTexture> embeddedTextures) {
+    public ArmatureModel(List<Bone> bones, List<Mesh> meshes) {
+        this(bones, meshes, List.of());
+    }
+
     public ArmatureModel {
         bones = List.copyOf(bones == null ? List.of() : bones);
         meshes = List.copyOf(meshes == null ? List.of() : meshes);
+        embeddedTextures = List.copyOf(embeddedTextures == null ? List.of() : embeddedTextures);
     }
 
     public int rootBoneIndex() {
@@ -22,6 +28,20 @@ public record ArmatureModel(List<Bone> bones, List<Mesh> meshes) {
     }
 
     public record Bone(long id, String name, int parentIndex, Matrix4f localBindTransform, Matrix4f inverseBindTransform) {
+    }
+
+    public record EmbeddedTexture(String key, String name, String formatHint, byte[] data, int width, int height, boolean compressed) {
+        public EmbeddedTexture {
+            key = key == null ? "" : key;
+            name = name == null ? "" : name;
+            formatHint = formatHint == null ? "" : formatHint;
+            data = data == null ? new byte[0] : Arrays.copyOf(data, data.length);
+        }
+
+        @Override
+        public byte[] data() {
+            return Arrays.copyOf(data, data.length);
+        }
     }
 
     public record Mesh(String key, String name, String materialName, String textureHint, List<Vertex> vertices, int[] indices, Matrix4f meshToModelTransform, Bounds bindBounds, float longTriangleEdgeLimitSquared) {

@@ -52,6 +52,14 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
 runs {
     configureEach {
+        dependencies {
+            runtime "org.lwjgl:lwjgl-assimp:${lwjgl_version}"
+            runtime "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-windows"
+            runtime "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-windows-arm64"
+            runtime "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-linux"
+            runtime "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-macos"
+            runtime "org.lwjgl:lwjgl-assimp:${lwjgl_version}:natives-macos-arm64"
+        }
         systemProperty "forge.logging.markers", "REGISTRIES"
         systemProperty "forge.logging.console.level", "debug"
         [

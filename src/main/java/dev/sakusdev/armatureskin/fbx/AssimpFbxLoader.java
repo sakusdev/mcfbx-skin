@@ -12,6 +12,8 @@ import org.lwjgl.assimp.AIMesh;
 import org.lwjgl.assimp.AINode;
 import org.lwjgl.assimp.AIScene;
 import org.lwjgl.assimp.AIString;
+import org.lwjgl.assimp.AITexel;
+import org.lwjgl.assimp.AITexture;
 import org.lwjgl.assimp.AIVector3D;
 import org.lwjgl.assimp.AIVertexWeight;
 import org.lwjgl.assimp.Assimp;
@@ -76,6 +78,7 @@ final class AssimpFbxLoader {
 
         List<ArmatureModel.Bone> bones = buildBones(boneIndexByName, inverseBindByBone, nodes, rootInverse);
         Matrix4f[] bindSkinMatrices = buildBindSkinMatrices(bones);
+        List<ArmatureModel.EmbeddedTexture> embeddedTextures = readEmbeddedTextures(scene);
         List<MaterialInfo> materials = readMaterials(scene);
         List<ArmatureModel.Mesh> meshes = new ArrayList<>();
         for (int meshIndex = 0; meshIndex < scene.mNumMeshes(); meshIndex++) {
@@ -89,7 +92,7 @@ final class AssimpFbxLoader {
         if (meshes.isEmpty()) {
             throw new IOException("Assimp imported the FBX, but all meshes were empty.");
         }
-        return new ArmatureModel(bones, meshes);
+        return new ArmatureModel(bones, meshes, embeddedTextures);
     }
 
     private static void collectBones(AIScene scene, Map<String, Integer> boneIndexByName, Map<String, Matrix4f> inverseBindByBone) {
@@ -357,9 +360,65 @@ final class AssimpFbxLoader {
             if (materialName.isBlank()) {
                 materialName = textureName.isBlank() ? "material_" + i : baseName(textureName);
             }
-            names.add(new MaterialInfo(materialName, baseName(textureName)));
+            names.add(new MaterialInfo(materialName, textureHint(textureName)));
         }
         return names;
+    }
+
+    private static List<ArmatureModel.EmbeddedTexture> readEmbeddedTextures(AIScene scene) {
+        PointerBuffer textures = scene.mTextures();
+        if (textures == null || scene.mNumTextures() <= 0) {
+            return List.of();
+        }
+
+        List<ArmatureModel.EmbeddedTexture> embedded = new ArrayList<>(scene.mNumTextures());
+        for (int i = 0; i < scene.mNumTextures(); i++) {
+            AITexture texture = AITexture.create(textures.get(i));
+            String key = embeddedTextureKey(i);
+            String name = name(texture.mFilename());
+            String formatHint = texture.achFormatHintString();
+            if (name.isBlank()) {
+                name = formatHint == null || formatHint.isBlank() ? key : key + "." + formatHint;
+            }
+            boolean compressed = texture.mHeight() == 0;
+            byte[] data = compressed ? compressedTextureBytes(texture) : rawTextureBytes(texture);
+            if (data.length == 0) {
+                continue;
+            }
+            embedded.add(new ArmatureModel.EmbeddedTexture(key, name, formatHint, data, texture.mWidth(), texture.mHeight(), compressed));
+        }
+        return embedded;
+    }
+
+    private static byte[] compressedTextureBytes(AITexture texture) {
+        ByteBuffer buffer = texture.pcDataCompressed();
+        if (buffer == null) {
+            return new byte[0];
+        }
+        ByteBuffer copy = buffer.slice();
+        byte[] bytes = new byte[copy.remaining()];
+        copy.get(bytes);
+        return bytes;
+    }
+
+    private static byte[] rawTextureBytes(AITexture texture) {
+        AITexel.Buffer texels = texture.pcData();
+        int width = texture.mWidth();
+        int height = texture.mHeight();
+        if (texels == null || width <= 0 || height <= 0) {
+            return new byte[0];
+        }
+        int pixelCount = Math.min(texels.limit(), width * height);
+        byte[] data = new byte[pixelCount * 4];
+        for (int i = 0; i < pixelCount; i++) {
+            AITexel texel = texels.get(i);
+            int offset = i * 4;
+            data[offset] = texel.r();
+            data[offset + 1] = texel.g();
+            data[offset + 2] = texel.b();
+            data[offset + 3] = texel.a();
+        }
+        return data;
     }
 
     private static String materialName(AIMaterial material) {
@@ -414,6 +473,26 @@ final class AssimpFbxLoader {
         String fileName = slash < 0 ? normalized : normalized.substring(slash + 1);
         int extension = fileName.lastIndexOf('.');
         return extension < 0 ? fileName : fileName.substring(0, extension);
+    }
+
+    private static String textureHint(String path) {
+        String embeddedKey = embeddedTextureKey(path);
+        return embeddedKey == null ? baseName(path) : embeddedKey;
+    }
+
+    private static String embeddedTextureKey(String path) {
+        if (path == null || !path.startsWith("*") || path.length() <= 1) {
+            return null;
+        }
+        try {
+            return embeddedTextureKey(Integer.parseInt(path.substring(1)));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static String embeddedTextureKey(int index) {
+        return "embedded_" + index;
     }
 
     private static String normalizeKey(String value) {
