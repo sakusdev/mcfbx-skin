@@ -31,10 +31,6 @@ import java.util.Set;
 
 final class AssimpFbxLoader {
     private static final int MAX_SKIN_INFLUENCES = 8;
-    private static final int MIN_TRIANGLES_FOR_EDGE_OUTLIER_CULL = 128;
-    private static final float EDGE_OUTLIER_PERCENTILE = 0.95F;
-    private static final float EDGE_OUTLIER_MULTIPLIER_SQUARED = 9.0F;
-    private static final float MIN_MESH_DIAGONAL_EDGE_LIMIT_RATIO = 0.025F;
 
     private static final int IMPORT_FLAGS = Assimp.aiProcess_Triangulate
             | Assimp.aiProcess_ValidateDataStructure
@@ -243,10 +239,9 @@ final class AssimpFbxLoader {
         int[] indexArray = indices.stream().mapToInt(Integer::intValue).toArray();
         List<Vector3f> bindPositions = bindPositions(vertices, bindSkinMatrices, meshToModelTransform);
         ArmatureModel.Bounds bindBounds = bindBounds(bindPositions);
-        float longTriangleEdgeLimitSquared = longTriangleEdgeLimitSquared(bindPositions, indexArray, bindBounds);
         String meshName = name(mesh.mName());
         String key = "assimp:" + meshIndex + "|mesh:" + normalizeKey(meshName) + "|material:" + normalizeKey(material.name());
-        return new ArmatureModel.Mesh(key, meshName, material.name(), material.textureHint(), vertices, indexArray, meshToModelTransform, bindBounds, longTriangleEdgeLimitSquared);
+        return new ArmatureModel.Mesh(key, meshName, material.name(), material.textureHint(), vertices, indexArray, meshToModelTransform, bindBounds);
     }
 
     @SuppressWarnings("unchecked")
@@ -318,48 +313,6 @@ final class AssimpFbxLoader {
             bounds = bounds.include(position);
         }
         return bounds;
-    }
-
-    private static float longTriangleEdgeLimitSquared(List<Vector3f> bindPositions, int[] indices, ArmatureModel.Bounds bindBounds) {
-        if (indices.length / 3 < MIN_TRIANGLES_FOR_EDGE_OUTLIER_CULL || bindPositions.isEmpty() || bindBounds == null || !bindBounds.valid()) {
-            return Float.POSITIVE_INFINITY;
-        }
-
-        List<Float> longestEdges = new ArrayList<>(indices.length / 3);
-        for (int i = 0; i + 2 < indices.length; i += 3) {
-            int ia = indices[i];
-            int ib = indices[i + 1];
-            int ic = indices[i + 2];
-            if (ia < 0 || ib < 0 || ic < 0 || ia >= bindPositions.size() || ib >= bindPositions.size() || ic >= bindPositions.size()) {
-                continue;
-            }
-            Vector3f a = bindPositions.get(ia);
-            Vector3f b = bindPositions.get(ib);
-            Vector3f c = bindPositions.get(ic);
-            if (!isFinite(a) || !isFinite(b) || !isFinite(c)) {
-                continue;
-            }
-            float maxEdge = Math.max(a.distanceSquared(b), Math.max(b.distanceSquared(c), c.distanceSquared(a)));
-            if (Float.isFinite(maxEdge) && maxEdge > 0.0F) {
-                longestEdges.add(maxEdge);
-            }
-        }
-        if (longestEdges.size() < MIN_TRIANGLES_FOR_EDGE_OUTLIER_CULL) {
-            return Float.POSITIVE_INFINITY;
-        }
-
-        longestEdges.sort(Float::compare);
-        int percentileIndex = Math.max(0, Math.min(longestEdges.size() - 1, (int) (longestEdges.size() * EDGE_OUTLIER_PERCENTILE)));
-        float percentileLimit = longestEdges.get(percentileIndex) * EDGE_OUTLIER_MULTIPLIER_SQUARED;
-        float diagonalSquared = bindBounds.width() * bindBounds.width()
-                + bindBounds.height() * bindBounds.height()
-                + bindBounds.depth() * bindBounds.depth();
-        float diagonalLimit = diagonalSquared * MIN_MESH_DIAGONAL_EDGE_LIMIT_RATIO;
-        return Math.max(percentileLimit, diagonalLimit);
-    }
-
-    private static boolean isFinite(Vector3f vector) {
-        return vector != null && Float.isFinite(vector.x()) && Float.isFinite(vector.y()) && Float.isFinite(vector.z());
     }
 
     private static Vector3f skinPosition(ArmatureModel.Vertex vertex, Matrix4f[] skinMatrices, Matrix4f meshToModelTransform) {
@@ -475,7 +428,7 @@ final class AssimpFbxLoader {
         return hash;
     }
 
-    private static String extensionHint(String sourceName) {
+    static String extensionHint(String sourceName) {
         if (sourceName == null) {
             return "fbx";
         }
@@ -483,7 +436,8 @@ final class AssimpFbxLoader {
         if (dot < 0 || dot + 1 >= sourceName.length()) {
             return "fbx";
         }
-        return sourceName.substring(dot + 1).toLowerCase(Locale.ROOT);
+        String extension = sourceName.substring(dot + 1).toLowerCase(Locale.ROOT);
+        return extension.equals("vrm") ? "glb" : extension;
     }
 
     private record VertexWeight(int boneIndex, float weight) {

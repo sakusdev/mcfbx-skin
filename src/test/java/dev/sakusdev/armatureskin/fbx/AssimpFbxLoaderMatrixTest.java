@@ -30,4 +30,12 @@ final class AssimpFbxLoaderMatrixTest {
             assimp.free();
         }
     }
+
+    @Test
+    void treatsVrmAsGlbForAssimpMemoryImport() {
+        assertEquals("glb", AssimpFbxLoader.extensionHint("avatar.vrm"));
+        assertEquals("glb", AssimpFbxLoader.extensionHint("avatar.glb"));
+        assertEquals("gltf", AssimpFbxLoader.extensionHint("avatar.gltf"));
+        assertEquals("fbx", AssimpFbxLoader.extensionHint("avatar.fbx"));
+    }
 }

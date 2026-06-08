@@ -15,6 +15,7 @@ import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.ResourceLocation;
+import org.joml.AxisAngle4f;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
@@ -27,9 +28,7 @@ import java.util.Map;
 public final class ArmatureSkinRenderer {
     private static final float TARGET_MODEL_HEIGHT = 1.8F;
     private static final float MIN_VALID_TRIANGLE_AREA = 0.0000001F;
-    private static final float MIN_NEEDLE_EDGE_LENGTH_SQUARED = 0.0036F;
-    private static final float NEEDLE_MIN_EDGE_RATIO_SQUARED = 0.0016F;
-    private static final float NEEDLE_AREA_RATIO_SQUARED = 0.00025F;
+    private static final float MAX_ARM_AIM_RADIANS = 1.25F;
 
     private ArmatureModel model;
     private ArmatureSkinConfig config = ArmatureSkinConfig.defaults();
@@ -306,7 +305,7 @@ public final class ArmatureSkinRenderer {
         inverseUpperBasis.invert();
 
         float side = left ? -1.0F : 1.0F;
-        float armForward = (left ? -walk : walk) * 0.22F;
+        float armForward = (left ? -walk : walk) * 0.08F;
         Vector3f targetModelDirection = new Vector3f(side * 0.18F, -1.0F, armForward).normalize();
         Vector3f targetLocalDirection = inverseUpperBasis.transformDirection(targetModelDirection, new Vector3f());
         if (targetLocalDirection.lengthSquared() <= 0.000001F) {
@@ -316,7 +315,18 @@ public final class ArmatureSkinRenderer {
         if (childDirection.dot(targetLocalDirection) > 0.995F) {
             return;
         }
-        local.rotate(new Quaternionf().rotationTo(childDirection, targetLocalDirection));
+        local.rotate(limitedRotation(childDirection, targetLocalDirection, MAX_ARM_AIM_RADIANS));
+    }
+
+    private static Quaternionf limitedRotation(Vector3f from, Vector3f to, float maxRadians) {
+        Quaternionf rotation = new Quaternionf().rotationTo(from, to);
+        AxisAngle4f axisAngle = rotation.get(new AxisAngle4f());
+        Vector3f axis = new Vector3f(axisAngle.x, axisAngle.y, axisAngle.z);
+        float angle = Math.min(maxRadians, axisAngle.angle);
+        if (axis.lengthSquared() <= 0.000001F || angle <= 0.000001F) {
+            return new Quaternionf();
+        }
+        return new Quaternionf().rotateAxis(angle, axis.normalize());
     }
 
     private static Vector3f translationOf(Matrix4f matrix) {
@@ -383,31 +393,7 @@ public final class ArmatureSkinRenderer {
             return true;
         }
 
-        float longTriangleLimit = mesh.longTriangleEdgeLimitSquared();
-        if (Float.isFinite(longTriangleLimit) && maxEdge > longTriangleLimit) {
-            return true;
-        }
-
-        ArmatureModel.Bounds bindBounds = mesh.bindBounds();
-        if (bindBounds == null || !bindBounds.valid()) {
-            return false;
-        }
-        float bindDiagonal = bindBounds.width() * bindBounds.width()
-                + bindBounds.height() * bindBounds.height()
-                + bindBounds.depth() * bindBounds.depth();
-        if (bindDiagonal <= 0.0000001F) {
-            return false;
-        }
-
-        float longEnoughToBeVisible = Math.max(MIN_NEEDLE_EDGE_LENGTH_SQUARED, bindDiagonal * 0.035F);
-        if (maxEdge < longEnoughToBeVisible) {
-            return false;
-        }
-
-        float minEdge = Math.min(ab, Math.min(bc, ca));
-        boolean needleByEdgeRatio = minEdge < maxEdge * NEEDLE_MIN_EDGE_RATIO_SQUARED;
-        boolean needleByArea = doubleArea * doubleArea < maxEdge * maxEdge * NEEDLE_AREA_RATIO_SQUARED;
-        return needleByEdgeRatio || needleByArea;
+        return false;
     }
 
     private boolean isFinite(Vector3f vector) {

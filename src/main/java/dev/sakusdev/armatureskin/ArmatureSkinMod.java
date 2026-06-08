@@ -139,6 +139,7 @@ public final class ArmatureSkinMod {
         }
         if (debugCaptureStage == 0) {
             client.setScreen(null);
+            prepareDebugCameraPlayer(client);
             client.options.setCameraType(CameraType.THIRD_PERSON_FRONT);
             debugCaptureTicks = Math.max(10, DEBUG_CAPTURE_DELAY);
             debugCaptureStage = 1;
@@ -146,7 +147,11 @@ public final class ArmatureSkinMod {
             return;
         }
         if (debugCaptureStage == 1 && --debugCaptureTicks <= 0) {
-            client.setScreen(null);
+            if (!ensureDebugGameScreen(client)) {
+                debugCaptureTicks = 2;
+                return;
+            }
+            prepareDebugCameraPlayer(client);
             grabDebugScreenshot(client, "armature-fbx-debug-front.png");
             client.options.setCameraType(CameraType.THIRD_PERSON_BACK);
             debugCaptureTicks = 40;
@@ -154,7 +159,11 @@ public final class ArmatureSkinMod {
             return;
         }
         if (debugCaptureStage == 2 && --debugCaptureTicks <= 0) {
-            client.setScreen(null);
+            if (!ensureDebugGameScreen(client)) {
+                debugCaptureTicks = 2;
+                return;
+            }
+            prepareDebugCameraPlayer(client);
             grabDebugScreenshot(client, "armature-fbx-debug-back.png");
             debugCaptureStage = 3;
             debugCaptureTicks = 20;
@@ -177,6 +186,28 @@ public final class ArmatureSkinMod {
         if (debugCaptureStage == 5) {
             debugCaptureStage = 6;
         }
+    }
+
+    private static boolean ensureDebugGameScreen(Minecraft client) {
+        if (client.screen != null) {
+            client.setScreen(null);
+            return false;
+        }
+        return true;
+    }
+
+    private static void prepareDebugCameraPlayer(Minecraft client) {
+        if (client.player == null) {
+            return;
+        }
+        client.player.setXRot(0.0F);
+        client.player.xRotO = 0.0F;
+        client.player.setYRot(180.0F);
+        client.player.yRotO = 180.0F;
+        client.player.yBodyRot = 180.0F;
+        client.player.yBodyRotO = 180.0F;
+        client.player.yHeadRot = 180.0F;
+        client.player.yHeadRotO = 180.0F;
     }
 
     private static void grabDebugScreenshot(Minecraft client, String fileName) {
@@ -228,15 +259,15 @@ public final class ArmatureSkinMod {
         loadedModel = null;
 
         if (!config.enabled()) {
-            LOGGER.info("Armature FBX skin is disabled.");
+            LOGGER.info("Armature model skin is disabled.");
             return;
         }
 
-        Path fbxPath = skinManager.resolveSelectedPath().orElse(null);
-        if (fbxPath == null || !Files.isRegularFile(fbxPath)) {
-            LOGGER.warn("Armature FBX skin file was not found: {}", fbxPath);
+        Path modelPath = skinManager.resolveSelectedPath().orElse(null);
+        if (modelPath == null || !Files.isRegularFile(modelPath)) {
+            LOGGER.warn("Armature model skin file was not found: {}", modelPath);
             if (announce && client.player != null) {
-                client.player.sendSystemMessage(Component.literal("No FBX skin found in " + client.gameDirectory.toPath().resolve(ArmatureSkinManager.SKIN_DIRECTORY) + ". Press K to open selector."));
+                client.player.sendSystemMessage(Component.literal("No FBX/VRM model skin found in " + client.gameDirectory.toPath().resolve(ArmatureSkinManager.SKIN_DIRECTORY) + ". Press K to open selector."));
             }
             return;
         }
@@ -247,7 +278,7 @@ public final class ArmatureSkinMod {
             SkinRenderTexture texture;
             Map<String, SkinRenderTexture> materialTextures;
             Map<String, SkinRenderTexture> meshTextures;
-            model = new FbxLoader().load(fbxPath);
+            model = new FbxLoader().load(modelPath);
             texture = loadSelectedTexture(client);
             materialTextures = loadMaterialTextures(client, model);
             meshTextures = loadAssignedMeshTextures(client, model);
@@ -257,8 +288,8 @@ public final class ArmatureSkinMod {
             loadedModel = model;
             RENDERER.setModel(model, config, texture, materialTextures, meshTextures);
             logModelDiagnostics(model);
-            LOGGER.info("Loaded armature FBX skin from {} with texture {}, {} material texture(s), and {} mesh texture override(s). bones={}, meshes={}, yawOffset={}, animation={}@{}",
-                    fbxPath,
+            LOGGER.info("Loaded armature model skin from {} with texture {}, {} material texture(s), and {} mesh texture override(s). bones={}, meshes={}, yawOffset={}, animation={}@{}",
+                    modelPath,
                     texture == null ? "none" : texture.location(),
                     materialTextures.size(),
                     meshTextures.size(),
@@ -268,12 +299,12 @@ public final class ArmatureSkinMod {
                     config.animationEnabled(),
                     config.animationStrength());
             if (announce && client.player != null) {
-                client.player.sendSystemMessage(Component.literal("Reloaded armature FBX skin."));
+                client.player.sendSystemMessage(Component.literal("Reloaded armature model skin."));
             }
         } catch (Exception ex) {
-            LOGGER.error("Failed to load armature FBX skin from {}", fbxPath, ex);
+            LOGGER.error("Failed to load armature model skin from {}", modelPath, ex);
             if (announce && client.player != null) {
-                client.player.sendSystemMessage(Component.literal("Failed to load armature FBX skin: " + ex.getMessage()));
+                client.player.sendSystemMessage(Component.literal("Failed to load armature model skin: " + ex.getMessage()));
             }
         }
     }
@@ -328,7 +359,7 @@ public final class ArmatureSkinMod {
                 try {
                     Files.createDirectories(folder);
                 } catch (IOException ex) {
-                    throw new IllegalStateException("Failed to create FBX skin folder", ex);
+                    throw new IllegalStateException("Failed to create model skin folder", ex);
                 }
                 Util.getPlatform().openFile(folder.toFile());
             }
@@ -517,7 +548,7 @@ public final class ArmatureSkinMod {
             putTextureAlias(loadedMaterialTextures, textureHintKey, location);
             putTextureAlias(textures, materialKey, location);
             putTextureAlias(textures, textureHintKey, location);
-            LOGGER.info("Matched FBX material '{}' hint '{}' to texture '{}'", mesh.materialName(), mesh.textureHint(), matchingTexture.path().getFileName());
+            LOGGER.info("Matched model material '{}' hint '{}' to texture '{}'", mesh.materialName(), mesh.textureHint(), matchingTexture.path().getFileName());
         }
         return textures;
     }
@@ -652,7 +683,7 @@ public final class ArmatureSkinMod {
                     .count();
             float unweightedPercent = mesh.vertices().isEmpty() ? 0.0F : unweightedVertices * 100.0F / mesh.vertices().size();
             LOGGER.info(
-                    "FBX mesh '{}': vertices={}, triangles={}, unweighted={}%, material='{}', textureHint='{}', bindBounds={}",
+                    "Model mesh '{}': vertices={}, triangles={}, unweighted={}%, material='{}', textureHint='{}', bindBounds={}",
                     mesh.displayName(),
                     mesh.vertices().size(),
                     mesh.indices().length / 3,
@@ -665,7 +696,7 @@ public final class ArmatureSkinMod {
                     && (mesh.bindBounds().height() > modelHeight * 2.5F
                     || mesh.bindBounds().width() > Math.max(modelHeight * 4.0F, 0.001F)
                     || mesh.bindBounds().depth() > Math.max(modelHeight * 4.0F, 0.001F))) {
-                LOGGER.warn("FBX mesh '{}' has unusually large bind bounds and may be a source of high-poly artifacts. Disable it in the selector to isolate the issue.", mesh.displayName());
+                LOGGER.warn("Model mesh '{}' has unusually large bind bounds and may be a source of high-poly artifacts. Disable it in the selector to isolate the issue.", mesh.displayName());
             }
         }
     }

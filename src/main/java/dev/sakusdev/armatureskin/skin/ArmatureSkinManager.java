@@ -17,6 +17,7 @@ public final class ArmatureSkinManager {
     public static final String SKIN_DIRECTORY = "fbx";
 
     private static final int FBX_HEADER_SAMPLE_BYTES = 64 * 1024;
+    private static final List<String> SKIN_EXTENSIONS = List.of(".fbx", ".vrm", ".glb", ".gltf");
 
     private final Path gameDir;
     private final ArmatureSkinConfig config;
@@ -144,8 +145,8 @@ public final class ArmatureSkinManager {
     private static ArmatureSkin discoveredSkin(Path skinDir, Path path, List<ArmatureSkinTexture> textures) {
         Path normalizedPath = path.toAbsolutePath().normalize();
         String relative = skinDir.relativize(normalizedPath).toString().replace('\\', '/');
-        String id = stripSkinExtension(relative);
-        return new ArmatureSkin(id, displayName(normalizedPath), normalizedPath, isAsciiFbx(normalizedPath), siblingTextures(normalizedPath, textures));
+        String id = skinId(relative);
+        return new ArmatureSkin(id, displayName(normalizedPath), normalizedPath, hasFbxExtension(normalizedPath) && isAsciiFbx(normalizedPath), siblingTextures(normalizedPath, textures));
     }
 
     private static ArmatureSkinTexture discoveredTexture(Path skinDir, Path path) {
@@ -178,7 +179,7 @@ public final class ArmatureSkinManager {
                 .filter(skin -> skin.path().toAbsolutePath().normalize().equals(normalizedPath))
                 .findFirst()
                 .or(() -> {
-                    return Optional.of(new ArmatureSkin(idPrefix + ":" + stripSkinExtension(normalizedPath.getFileName().toString()), displayName(normalizedPath), normalizedPath, isAsciiFbx(normalizedPath), siblingTextures(normalizedPath, availableTextures)));
+                    return Optional.of(new ArmatureSkin(idPrefix + ":" + skinId(normalizedPath.getFileName().toString()), displayName(normalizedPath), normalizedPath, hasFbxExtension(normalizedPath) && isAsciiFbx(normalizedPath), siblingTextures(normalizedPath, availableTextures)));
                 });
     }
 
@@ -201,7 +202,8 @@ public final class ArmatureSkinManager {
     }
 
     private static boolean hasSkinExtension(Path path) {
-        return hasFbxExtension(path);
+        String fileName = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        return SKIN_EXTENSIONS.stream().anyMatch(fileName::endsWith);
     }
 
     private static boolean hasTextureExtension(Path path) {
@@ -231,6 +233,10 @@ public final class ArmatureSkinManager {
         return stripSkinExtension(path.getFileName().toString());
     }
 
+    private static String skinId(String value) {
+        return value.toLowerCase(Locale.ROOT).endsWith(".fbx") ? stripSkinExtension(value) : value;
+    }
+
     private static String stripFbxExtension(String value) {
         if (value.toLowerCase(Locale.ROOT).endsWith(".fbx")) {
             return value.substring(0, value.length() - 4);
@@ -239,6 +245,12 @@ public final class ArmatureSkinManager {
     }
 
     private static String stripSkinExtension(String value) {
+        String lower = value.toLowerCase(Locale.ROOT);
+        for (String extension : SKIN_EXTENSIONS) {
+            if (lower.endsWith(extension)) {
+                return value.substring(0, value.length() - extension.length());
+            }
+        }
         return stripFbxExtension(value);
     }
 

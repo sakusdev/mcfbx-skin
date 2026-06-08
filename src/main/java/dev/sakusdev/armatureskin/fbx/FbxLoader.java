@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 public final class FbxLoader {
     private static final byte[] BINARY_MAGIC = new byte[]{
@@ -21,6 +22,11 @@ public final class FbxLoader {
         try {
             return new AssimpFbxLoader().load(data, sourceName);
         } catch (IOException | RuntimeException | LinkageError assimpFailure) {
+            if (!isFbxSource(sourceName)) {
+                throw assimpFailure instanceof IOException ioException
+                        ? ioException
+                        : new IOException("Assimp failed to import " + sourceName, assimpFailure);
+            }
             try {
                 return loadWithBuiltInParser(data, sourceName);
             } catch (IOException fallbackFailure) {
@@ -47,5 +53,9 @@ public final class FbxLoader {
             }
         }
         return true;
+    }
+
+    private static boolean isFbxSource(String sourceName) {
+        return sourceName != null && sourceName.toLowerCase(Locale.ROOT).endsWith(".fbx");
     }
 }
